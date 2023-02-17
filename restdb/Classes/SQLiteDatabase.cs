@@ -6,24 +6,35 @@ using System.Threading.Tasks;
 using System.Data.SQLite;
 using System.Collections.Generic;
 
-namespace restdb.Classes
+namespace RestDb.Classes
 {
-    internal class Sqlite : restdb.Interfaces.IDb
+    internal class SQLiteDatabase : RestDb.Interfaces.IDatabase
     {
         private SQLiteConnection connection;
 
-        public Sqlite(string connectionString)
+        public SQLiteDatabase(string connectionString)
         {
-            connection = new SQLiteConnection(connectionString);
+            connection = new SQLiteConnection(connectionString, true);
         }
 
         public void CreateRecord(string tableName, Dictionary<string, object> record)
         {
-            string query = $"INSERT INTO {tableName} ({string.Join(", ", record.Keys)}) VALUES ({string.Join(", ", record.Values)})";
+            List<string> columns = new List<string>(record.Keys);
+            List<string> values = new List<string>();
+            List<SQLiteParameter> parameters = new List<SQLiteParameter>();
+
+            foreach (string column in columns)
+            {
+                values.Add($"@{column}");
+                parameters.Add(new SQLiteParameter($"@{column}", record[column]));
+            }
+
+            string query = $"INSERT INTO {tableName} ({string.Join(", ", columns)}) VALUES ({string.Join(", ", values)})";
 
             using (SQLiteCommand command = new SQLiteCommand(query, connection))
             {
                 connection.Open();
+                command.Parameters.AddRange(parameters.ToArray());
                 command.ExecuteNonQuery();
                 connection.Close();
             }
@@ -82,6 +93,23 @@ namespace restdb.Classes
                 command.ExecuteNonQuery();
                 connection.Close();
             }
+        }
+
+        public void CreateTable(string tableName, List<string> columns)
+        {
+            // Construct the CREATE TABLE query
+            string query = "CREATE TABLE " + tableName + " (id INTEGER PRIMARY KEY AUTOINCREMENT";
+            foreach (string column in columns)
+            {
+                query += ", " + column;
+            }
+            query += ")";
+
+            // Execute the CREATE TABLE query
+            SQLiteCommand command = new SQLiteCommand(query, connection);
+            connection.Open();
+            command.ExecuteNonQuery();
+            connection.Close();
         }
     }
 }

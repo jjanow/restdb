@@ -4,9 +4,9 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace restdb.Interfaces
+namespace RestDb.Interfaces
 {
-    internal interface IDb
+    internal interface IDatabase
     {
         // Create a new record in the database
         void CreateRecord(string tableName, Dictionary<string, object> record);
@@ -19,5 +19,8 @@ namespace restdb.Interfaces
 
         // Delete a record from the database
         void DeleteRecord(string tableName, int id);
+
+        // Create a new table in the database
+        void CreateTable(string tableName, List<string> columns);
     }
 }

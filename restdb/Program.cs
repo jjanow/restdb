@@ -1,41 +1,49 @@
-﻿using restdb.Classes;
+﻿using RestDb.Classes;
+using System.Data.SQLite;
 
-namespace restdb
+namespace RestDb
 {
     internal class Program
     {
         static void Main(string[] args)
         {
             // Connect to the SQLite database
-            string connectionString = "Data Source=database.db";
-            Sqlite database = new Sqlite(connectionString);
+            string connectionString = "Data Source=database.db;Version=3;";
+            SQLiteDatabase database = new SQLiteDatabase(connectionString);
 
-            // Create a new record in the database
+            // Create a new table in the database
+            string tableName = "employees";
+            //List<string> columns = new List<string>() { "name TEXT", "title TEXT", "salary INT" };
+            //database.CreateTable(tableName, columns);
+
+            // Insert some data into the new table
             Dictionary<string, object> newRecord = new Dictionary<string, object>()
-        {
-            { "name", "John" },
-            { "age", 25 }
-        };
-            database.CreateRecord("people", newRecord);
+            {
+                { "name", "Alice" },
+                { "title", "Manager" },
+                { "salary", 50000 }
+            };
+            database.CreateRecord(tableName, newRecord);
 
-            // Read records from the database
-            List<Dictionary<string, object>> records = database.ReadRecords("people");
+            // Read the data from the new table
+            List<Dictionary<string, object>> records = database.ReadRecords(tableName);
             foreach (Dictionary<string, object> record in records)
             {
-                Console.WriteLine($"ID: {record["id"]}, Name: {record["name"]}, Age: {record["age"]}");
+                Console.WriteLine($"ID: {record["id"]}, Name: {record["name"]}, Title: {record["title"]}, Salary: {record["salary"]}");
             }
 
-            // Update a record in the database
+            // Update a record in the new table
             Dictionary<string, object> updatedRecord = new Dictionary<string, object>()
-        {
-            { "id", 1 },
-            { "name", "John Smith" },
-            { "age", 30 }
-        };
-            database.UpdateRecord("people", updatedRecord);
+            {
+                { "id", 1 },
+                { "name", "Alice Smith" },
+                { "title", "Senior Manager" },
+                { "salary", 60000 }
+            };
+            database.UpdateRecord(tableName, updatedRecord);
 
-            // Delete a record from the database
-            database.DeleteRecord("people", 2);
+            // Delete a record from the new table
+            database.DeleteRecord(tableName, 2);
         }
     }
 }
