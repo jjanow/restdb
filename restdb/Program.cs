@@ -13,8 +13,12 @@ namespace RestDb
 
             // Create a new table in the database
             string tableName = "employees";
-            //List<string> columns = new List<string>() { "name TEXT", "title TEXT", "salary INT" };
-            //database.CreateTable(tableName, columns);
+
+            if (!database.TableExists(tableName))
+            {
+                List<string> columns = new List<string>() { "name TEXT", "title TEXT", "salary INT" };
+                database.CreateTable(tableName, columns);
+            }
 
             // Insert some data into the new table
             Dictionary<string, object> newRecord = new Dictionary<string, object>()
@@ -43,7 +47,7 @@ namespace RestDb
             database.UpdateRecord(tableName, updatedRecord);
 
             // Delete a record from the new table
-            database.DeleteRecord(tableName, 2);
+            database.DeleteRecord(tableName, 1);
         }
     }
 }

@@ -73,7 +73,7 @@ namespace RestDb.Classes
 
         public void UpdateRecord(string tableName, Dictionary<string, object> record)
         {
-            string query = $"UPDATE {tableName} SET {string.Join(", ", record.Select(x => $"{x.Key} = {x.Value}"))} WHERE id = {record["id"]}";
+            string query = $"UPDATE {tableName} SET {string.Join(", ", record.Select(x => $"{x.Key} = {(x.Value is string ? $"'{x.Value}'" : x.Value)}"))} WHERE id = {record["id"]}";
 
             using (SQLiteCommand command = new SQLiteCommand(query, connection))
             {
@@ -110,6 +110,22 @@ namespace RestDb.Classes
             connection.Open();
             command.ExecuteNonQuery();
             connection.Close();
+        }
+
+        public bool TableExists(string tableName)
+        {
+            connection.Open();
+
+            string query = $"SELECT name FROM sqlite_master WHERE type='table' AND name='{tableName}'";
+            using (SQLiteCommand command = new SQLiteCommand(query, connection))
+            {
+                using (SQLiteDataReader reader = command.ExecuteReader())
+                {
+                    bool tableExists = reader.HasRows;
+                    connection.Close();
+                    return tableExists;
+                }
+            }
         }
     }
 }
