@@ -97,19 +97,23 @@ namespace RestDb.Classes
 
         public void CreateTable(string tableName, List<string> columns)
         {
-            // Construct the CREATE TABLE query
-            string query = "CREATE TABLE " + tableName + " (id INTEGER PRIMARY KEY AUTOINCREMENT";
-            foreach (string column in columns)
+            //Check if table exists first
+            if (!TableExists(tableName))
             {
-                query += ", " + column;
-            }
-            query += ")";
+                // Construct the CREATE TABLE query
+                string query = "CREATE TABLE " + tableName + " (id INTEGER PRIMARY KEY AUTOINCREMENT";
+                foreach (string column in columns)
+                {
+                    query += ", " + column;
+                }
+                query += ")";
 
-            // Execute the CREATE TABLE query
-            SQLiteCommand command = new SQLiteCommand(query, connection);
-            connection.Open();
-            command.ExecuteNonQuery();
-            connection.Close();
+                // Execute the CREATE TABLE query
+                SQLiteCommand command = new SQLiteCommand(query, connection);
+                connection.Open();
+                command.ExecuteNonQuery();
+                connection.Close();
+            }
         }
 
         public bool TableExists(string tableName)

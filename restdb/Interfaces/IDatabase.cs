@@ -22,5 +22,8 @@ namespace RestDb.Interfaces
 
         // Create a new table in the database
         void CreateTable(string tableName, List<string> columns);
+
+        // Check to see if a table already exists
+        public bool TableExists(string tableName);
     }
 }

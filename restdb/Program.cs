@@ -7,47 +7,66 @@ namespace RestDb
     {
         static void Main(string[] args)
         {
-            // Connect to the SQLite database
+            Dictionary<string, string> switches = new Dictionary<string, string>()
+            {
+                { "-createtable", "" },
+wd
+                { "-createrecord", "" },
+                { "-readrecord", "" },
+                { "-updaterecord", "" },
+                { "-deleterecord", "" },
+            };
+
+            for (int i = 0; i < args.Length; i += 2)
+            {
+                if (switches.ContainsKey(args[i]))
+                {
+                    switches[args[i]] = args[i + 1];
+                }
+            }
+
+
+            //// Connect to the SQLite database
             string connectionString = "Data Source=database.db;Version=3;";
             SQLiteDatabase database = new SQLiteDatabase(connectionString);
 
-            // Create a new table in the database
-            string tableName = "employees";
+            //// Create a new table in the database
+            //string tableName = "employees";
 
-            if (!database.TableExists(tableName))
-            {
-                List<string> columns = new List<string>() { "name TEXT", "title TEXT", "salary INT" };
-                database.CreateTable(tableName, columns);
-            }
+            //if (!database.TableExists(tableName))
+            //{
+            //    List<string> columns = new List<string>() { "name TEXT", "title TEXT", "salary INT" };
+            //    database.CreateTable(tableName, columns);
+            //}
 
-            // Insert some data into the new table
-            Dictionary<string, object> newRecord = new Dictionary<string, object>()
-            {
-                { "name", "Alice" },
-                { "title", "Manager" },
-                { "salary", 50000 }
-            };
-            database.CreateRecord(tableName, newRecord);
+            //// Insert some data into the new table
+            //Dictionary<string, object> newRecord = new Dictionary<string, object>()
+            //{
+            //    { "name", "Alice" },
+            //    { "title", "Manager" },
+            //    { "salary", 50000 }
+            //};
+            //database.CreateRecord(tableName, newRecord);
 
-            // Read the data from the new table
-            List<Dictionary<string, object>> records = database.ReadRecords(tableName);
-            foreach (Dictionary<string, object> record in records)
-            {
-                Console.WriteLine($"ID: {record["id"]}, Name: {record["name"]}, Title: {record["title"]}, Salary: {record["salary"]}");
-            }
+            //// Read the data from the new table
+            //List<Dictionary<string, object>> records = database.ReadRecords(tableName);
+            //foreach (Dictionary<string, object> record in records)
+            //{
+            //    Console.WriteLine($"ID: {record["id"]}, Name: {record["name"]}, Title: {record["title"]}, Salary: {record["salary"]}");
+            //}
 
-            // Update a record in the new table
-            Dictionary<string, object> updatedRecord = new Dictionary<string, object>()
-            {
-                { "id", 1 },
-                { "name", "Alice Smith" },
-                { "title", "Senior Manager" },
-                { "salary", 60000 }
-            };
-            database.UpdateRecord(tableName, updatedRecord);
+            //// Update a record in the new table
+            //Dictionary<string, object> updatedRecord = new Dictionary<string, object>()
+            //{
+            //    { "id", 1 },
+            //    { "name", "Alice Smith" },
+            //    { "title", "Senior Manager" },
+            //    { "salary", 60000 }
+            //};
+            //database.UpdateRecord(tableName, updatedRecord);
 
-            // Delete a record from the new table
-            database.DeleteRecord(tableName, 1);
+            //// Delete a record from the new table
+            //database.DeleteRecord(tableName, 1);
         }
     }
 }
