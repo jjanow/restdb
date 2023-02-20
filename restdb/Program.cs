@@ -7,10 +7,10 @@ namespace RestDb
     {
         static void Main(string[] args)
         {
+            // Parse command-line arguments into a dictionary
             Dictionary<string, string> switches = new Dictionary<string, string>()
             {
                 { "-createtable", "" },
-wd
                 { "-createrecord", "" },
                 { "-readrecord", "" },
                 { "-updaterecord", "" },
@@ -25,10 +25,62 @@ wd
                 }
             }
 
-
-            //// Connect to the SQLite database
-            string connectionString = "Data Source=database.db;Version=3;";
+            // Set up the SQLite database connection
+            string connectionString = "Data Source=1database.db;Version=3;";
             SQLiteDatabase database = new SQLiteDatabase(connectionString);
+
+            // Perform the appropriate action based on the command-line arguments
+            if (!string.IsNullOrEmpty(switches["-createtable"]))
+            {
+                string tableName = switches["-createtable"];
+                List<string> columns = new List<string>() { "name TEXT", "age INTEGER" };
+                database.CreateTable(tableName, columns);
+                Console.WriteLine($"Created table {tableName} with columns {string.Join(", ", columns)}");
+            }
+            else if (!string.IsNullOrEmpty(switches["-createrecord"]))
+            {
+                string tableName = switches["-createrecord"];
+                Dictionary<string, object> record = new Dictionary<string, object>()
+                {
+                    { "name", "John Doe" },
+                    { "age", 42 }
+                };
+                database.CreateRecord(tableName, record);
+                Console.WriteLine($"Created record in table {tableName} with values {string.Join(", ", record)}");
+            }
+            else if (!string.IsNullOrEmpty(switches["-readrecord"]))
+            {
+                string tableName = switches["-readrecord"];
+                List<Dictionary<string, object>> records = database.ReadRecords(tableName);
+                Console.WriteLine($"Read {records.Count} records from table {tableName}:");
+                foreach (var record in records)
+                {
+                    Console.WriteLine(string.Join(", ", record));
+                }
+            }
+            else if (!string.IsNullOrEmpty(switches["-updaterecord"]))
+            {
+                string tableName = switches["-updaterecord"];
+                Dictionary<string, object> record = new Dictionary<string, object>()
+                {
+                    { "id", 1 },
+                    { "name", "Jane Smith" },
+                    { "age", 30 }
+                };
+                database.UpdateRecord(tableName, record);
+                Console.WriteLine($"Updated record in table {tableName} with id {record["id"]} to values {string.Join(", ", record)}");
+            }
+            else if (!string.IsNullOrEmpty(switches["-deleterecord"]))
+            {
+                string tableName = switches["-deleterecord"];
+                int id = 1;
+                database.DeleteRecord(tableName, id);
+                Console.WriteLine($"Deleted record with id {id} from table {tableName}");
+            }
+            else
+            {
+                Console.WriteLine("Usage: yourprogram.exe -createtable tablename -createrecord tablename -readrecord tablename -updaterecord tablename -deleterecord tablename");
+            }
 
             //// Create a new table in the database
             //string tableName = "employees";
