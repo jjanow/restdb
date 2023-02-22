@@ -102,9 +102,15 @@ namespace RestDb.Classes
             {
                 // Construct the CREATE TABLE query
                 string query = "CREATE TABLE " + tableName + " (id INTEGER PRIMARY KEY AUTOINCREMENT";
+
                 foreach (string column in columns)
                 {
-                    query += ", " + column;
+                    string[] parts = column.Split(':');
+                    if (parts.Length != 2)
+                    {
+                        throw new ArgumentException($"Invalid column format: {column}");
+                    }
+                    query += $", {parts[0]} {parts[1]}";
                 }
                 query += ")";
 
