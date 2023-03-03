@@ -71,6 +71,35 @@ namespace RestDb.Classes
             }
         }
 
+        public Dictionary<string, object> ReadRecord(string tableName, int id)
+        {
+            string query = $"SELECT * FROM {tableName} WHERE id = {id}";
+
+            using (SQLiteCommand command = new SQLiteCommand(query, connection))
+            {
+                connection.Open();
+
+                Dictionary<string, object> record = null;
+
+                using (SQLiteDataReader reader = command.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        record = new Dictionary<string, object>();
+
+                        for (int i = 0; i < reader.FieldCount; i++)
+                        {
+                            record[reader.GetName(i)] = reader.GetValue(i);
+                        }
+                    }
+                }
+
+                connection.Close();
+
+                return record;
+            }
+        }
+
         public void UpdateRecord(string tableName, Dictionary<string, object> record)
         {
             string query = $"UPDATE {tableName} SET {string.Join(", ", record.Select(x => $"{x.Key} = {(x.Value is string ? $"'{x.Value}'" : x.Value)}"))} WHERE id = {record["id"]}";
@@ -101,24 +130,33 @@ namespace RestDb.Classes
             if (!TableExists(tableName))
             {
                 // Construct the CREATE TABLE query
-                string query = "CREATE TABLE " + tableName + " (id INTEGER PRIMARY KEY AUTOINCREMENT";
-
-                foreach (string column in columns)
+                string query = "
+                    public void CreateTable(string tableName, List<string> columns)
                 {
-                    string[] parts = column.Split(':');
-                    if (parts.Length != 2)
+                    //Check if table exists first
+                    if (!TableExists(tableName))
                     {
-                        throw new ArgumentException($"Invalid column format: {column}");
-                    }
-                    query += $", {parts[0]} {parts[1]}";
-                }
-                query += ")";
+                        // Construct the CREATE TABLE query
+                        string query = "CREATE TABLE " + tableName + " (id INTEGER PRIMARY KEY AUTOINCREMENT";
 
-                // Execute the CREATE TABLE query
-                SQLiteCommand command = new SQLiteCommand(query, connection);
-                connection.Open();
-                command.ExecuteNonQuery();
-                connection.Close();
+                        foreach (string column in columns)
+                        {
+                            string[] parts = column.Split(':');
+                            if (parts.Length != 2)
+                            {
+                                throw new ArgumentException($"Invalid column format: {column}");
+                            }
+                            query += $", {parts[0]} {parts[1]}";
+                        }
+                        query += ")";
+
+                        // Execute the CREATE TABLE query
+                        SQLiteCommand command = new SQLiteCommand(query, connection);
+                        connection.Open();
+                        command.ExecuteNonQuery();
+                        connection.Close();
+                    }
+                }
             }
         }
 

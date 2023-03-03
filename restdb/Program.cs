@@ -1,6 +1,5 @@
 ﻿using RestDb.Classes;
-using System.Data.Entity;
-using System.Data.SQLite;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -16,13 +15,117 @@ namespace RestDb
             // Create a new SQLite database instance
             SQLiteDatabase database = new SQLiteDatabase("Data Source=1database.db;Version=3;");
 
-            // Create table if -createtable switch was passed
-            if (switches.ContainsKey("-createtable"))
+            // Perform CRUD operation based on command line switches
+            switch (switches.ContainsKey("-operation") ? switches["-operation"] : "")
             {
-                string tableName = switches["-createtable"];
-                List<string> columns = switches.ContainsKey("-columns") ? switches["-columns"].Split(',').ToList() : new List<string>();
+                case "create":
+                    string tableName = switches["-table"];
+                    List<string> columns = switches.ContainsKey("-columns") ? switches["-columns"].Split(',').ToList() : new List<string>();
 
-                database.CreateTable(tableName, columns);
+                    database.CreateTable(tableName, columns);
+                    Console.WriteLine($"Table '{tableName}' created.");
+                    break;
+
+                case "read":
+                    if (switches.ContainsKey("-id"))
+                    {
+                        int id = 0;
+                        if (!Int32.TryParse(switches["-id"], out id))
+                        {
+                            Console.WriteLine("Invalid ID specified.");
+                            return;
+                        }
+
+                        Dictionary<string, object> record = database.ReadRecords(switches["-table"]);
+                        if (record != null)
+                        {
+                            Console.WriteLine($"Record ID: {id}");
+                            foreach (KeyValuePair<string, object> kvp in record)
+                            {
+                                Console.WriteLine($"{kvp.Key}: {kvp.Value}");
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Record with ID {id} not found.");
+                        }
+                    }
+                    else
+                    {
+                        List<Dictionary<string, object>> records = database.ReadAllRecords(switches["-table"]);
+                        if (records != null && records.Count > 0)
+                        {
+                            Console.WriteLine($"Table: {switches["-table"]}");
+                            foreach (Dictionary<string, object> record in records)
+                            {
+                                Console.WriteLine($"Record ID: {record["id"]}");
+                                foreach (KeyValuePair<string, object> kvp in record)
+                                {
+                                    if (kvp.Key != "id")
+                                    {
+                                        Console.WriteLine($"{kvp.Key}: {kvp.Value}");
+                                    }
+                                }
+                                Console.WriteLine("");
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine($"No records found in table {switches["-table"]}.");
+                        }
+                    }
+                    break;
+
+                case "update":
+                    if (switches.ContainsKey("-id"))
+                    {
+                        int id = 0;
+                        if (!Int32.TryParse(switches["-id"], out id))
+                        {
+                            Console.WriteLine("Invalid ID specified.");
+                            return;
+                        }
+
+                        Dictionary<string, object> recordToUpdate = new Dictionary<string, object>();
+                        foreach (KeyValuePair<string, string> kvp in switches.Where(x => !x.Key.StartsWith("-")))
+                        {
+                            recordToUpdate[kvp.Key] = kvp.Value;
+                        }
+
+                        if (database.UpdateRecord(switches["-table"], id, recordToUpdate))
+                        {
+                            Console.WriteLine($"Record ID {id} in table '{switches["-table"]}' updated.");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Record with ID {id} not found in table '{switches["-table"]}'.");
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("ID is required to update a record.");
+                    }
+                    break;
+
+                case "delete":
+                    if (switches.ContainsKey("-id"))
+                    {
+                        int id = 0;
+                        if (!Int32.TryParse(switches["-id"], out id))
+                        {
+                            Console.WriteLine("Invalid ID specified.");
+                            return;
+                        }
+                        database.DeleteRecord(tableName, id);
+                    }
+                    else
+                    {
+                        Console.WriteLine("ID not specified.");
+                    }
+                    break;
+                default:
+                    Console.WriteLine("Invalid command.");
+                    break;
             }
         }
 
