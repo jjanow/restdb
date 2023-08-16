@@ -30,7 +30,6 @@ namespace RestDb.Classes
             }
 
             string query = $"INSERT INTO {tableName} ({string.Join(", ", columns)}) VALUES ({string.Join(", ", values)})";
-
             using (SQLiteCommand command = new SQLiteCommand(query, connection))
             {
                 connection.Open();
@@ -130,8 +129,8 @@ namespace RestDb.Classes
             if (!TableExists(tableName))
             {
                 // Construct the CREATE TABLE query
-                string query = "
-                    public void CreateTable(string tableName, List<string> columns)
+                //string query = "";
+                void CreateTable(string tableName, List<string> columns)
                 {
                     //Check if table exists first
                     if (!TableExists(tableName))

@@ -36,7 +36,8 @@ namespace RestDb
                             return;
                         }
 
-                        Dictionary<string, object> record = database.ReadRecords(switches["-table"]);
+                        //Dictionary<string, object> record = database.ReadRecords(switches["-table"]);
+                        Dictionary<string, object> record = database.ReadRecord(switches["-table"], id);
                         if (record != null)
                         {
                             Console.WriteLine($"Record ID: {id}");
@@ -52,7 +53,8 @@ namespace RestDb
                     }
                     else
                     {
-                        List<Dictionary<string, object>> records = database.ReadAllRecords(switches["-table"]);
+                        //List<Dictionary<string, object>> records = database.ReadAllRecords(switches["-table"]);
+                        List<Dictionary<string, object>> records = database.ReadRecords(switches["-table"]);
                         if (records != null && records.Count > 0)
                         {
                             Console.WriteLine($"Table: {switches["-table"]}");
@@ -92,14 +94,14 @@ namespace RestDb
                             recordToUpdate[kvp.Key] = kvp.Value;
                         }
 
-                        if (database.UpdateRecord(switches["-table"], id, recordToUpdate))
-                        {
-                            Console.WriteLine($"Record ID {id} in table '{switches["-table"]}' updated.");
-                        }
-                        else
-                        {
-                            Console.WriteLine($"Record with ID {id} not found in table '{switches["-table"]}'.");
-                        }
+                        //if (database.UpdateRecord(switches["-table"], id, recordToUpdate))
+                        //{
+                        //    Console.WriteLine($"Record ID {id} in table '{switches["-table"]}' updated.");
+                        //}
+                        //else
+                        //{
+                        //    Console.WriteLine($"Record with ID {id} not found in table '{switches["-table"]}'.");
+                        //}
                     }
                     else
                     {
@@ -116,7 +118,7 @@ namespace RestDb
                             Console.WriteLine("Invalid ID specified.");
                             return;
                         }
-                        database.DeleteRecord(tableName, id);
+                        //database.DeleteRecord(tableName, id);
                     }
                     else
                     {
