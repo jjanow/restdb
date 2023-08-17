@@ -87,21 +87,13 @@ namespace RestDb
                             Console.WriteLine("Invalid ID specified.");
                             return;
                         }
-
-                        Dictionary<string, object> recordToUpdate = new Dictionary<string, object>();
+                        Dictionary<string, object> recordToUpdate = new Dictionary<string, object> { { "id", id } };
                         foreach (KeyValuePair<string, string> kvp in switches.Where(x => !x.Key.StartsWith("-")))
                         {
                             recordToUpdate[kvp.Key] = kvp.Value;
                         }
-
-                        //if (database.UpdateRecord(switches["-table"], id, recordToUpdate))
-                        //{
-                        //    Console.WriteLine($"Record ID {id} in table '{switches["-table"]}' updated.");
-                        //}
-                        //else
-                        //{
-                        //    Console.WriteLine($"Record with ID {id} not found in table '{switches["-table"]}'.");
-                        //}
+                        database.UpdateRecord(switches["-table"], recordToUpdate);
+                        Console.WriteLine($"Record with ID {id} updated.");
                     }
                     else
                     {
@@ -118,15 +110,13 @@ namespace RestDb
                             Console.WriteLine("Invalid ID specified.");
                             return;
                         }
-                        //database.DeleteRecord(tableName, id);
+                        database.DeleteRecord(switches["-table"], id);
+                        Console.WriteLine($"Record with ID {id} deleted.");
                     }
                     else
                     {
                         Console.WriteLine("ID not specified.");
                     }
-                    break;
-                default:
-                    Console.WriteLine("Invalid command.");
                     break;
             }
         }
