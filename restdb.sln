@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.4.33213.308
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "restdb", "restdb\restdb.csproj", "{FF6A5DF7-9A46-4D97-AD98-D666BA3E59AE}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RestDb", "restdb\RestDb.csproj", "{FF6A5DF7-9A46-4D97-AD98-D666BA3E59AE}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "RestDb": {
+      "commandName": "Project",
+      "commandLineArgs": "-createtable users -columns name:text,age:integer,job:text"
+    }
+  }
+}
