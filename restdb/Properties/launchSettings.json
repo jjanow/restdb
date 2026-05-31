@@ -2,7 +2,15 @@
   "profiles": {
     "RestDb": {
       "commandName": "Project",
-      "commandLineArgs": "-createtable users -columns name:text,age:integer,job:text"
+      "launchBrowser": true,
+      "applicationUrl": "http://localhost:5055",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    },
+    "RestDb CLI": {
+      "commandName": "Project",
+      "commandLineArgs": "-operation create -table users -columns name:text,age:integer,job:text"
     }
   }
 }
