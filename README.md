@@ -26,6 +26,8 @@ What exists today:
   CLI commands.
 - CLI handling for table creation and record insert/read/update/delete.
 - Automated API tests in `RestDb.Tests/`.
+- OpenTelemetry metrics exported at `/metrics` for Prometheus scraping, with a
+  Docker Compose stack for Prometheus and Grafana.
 
 Known gaps in the current implementation:
 
@@ -41,6 +43,15 @@ Known gaps in the current implementation:
 .
 ├── README.md
 ├── restdb.sln
+├── docker-compose.yml
+├── prometheus.yml
+├── grafana/
+│   └── provisioning/
+│       ├── datasources/
+│       │   └── prometheus.yml
+│       └── dashboards/
+│           ├── restdb.yml
+│           └── restdb-dashboard.json
 ├── RestDb.Data/
 │   ├── DatabaseModels.cs
 │   ├── IDatabase.cs
@@ -69,6 +80,9 @@ The project currently restores:
 
 - `System.Data.SQLite` and `SQLitePCLRaw.lib.e_sqlite3` for the data library
 - `Swashbuckle.AspNetCore` for Swagger/OpenAPI
+- `OpenTelemetry.Extensions.Hosting`, `OpenTelemetry.Instrumentation.AspNetCore`,
+  `OpenTelemetry.Instrumentation.Runtime`, and
+  `OpenTelemetry.Exporter.Prometheus.AspNetCore` for observability
 - `Microsoft.AspNetCore.Mvc.Testing` for the integration test project
 
 ## Build
@@ -121,6 +135,39 @@ Run the API and open:
 ```text
 http://localhost:5055/swagger
 ```
+
+## Observability
+
+The API exposes a Prometheus-compatible metrics endpoint at `/metrics`. It is
+public (no API key required) so Prometheus can scrape it without authentication.
+
+Metrics collected:
+
+| Metric | Description |
+|--------|-------------|
+| `restdb_database_operation_duration_ms` | Histogram of SQLite operation durations (ms), tagged by `operation` (`CreateRecord`, `ReadRecords`, `ReadRecord`, `UpdateRecord`, `DeleteRecord`, `CreateTable`, `TableExists`, `ListTables`, `GetTableSchema`, `AddColumn`, `RenameColumn`, `DropColumn`) |
+| `http_server_request_duration_seconds` | ASP.NET Core HTTP request duration, tagged by route, method, and status code |
+| `process_runtime_dotnet_*` | .NET runtime metrics: GC heap, thread pool queue length, active threads, etc. |
+
+### Prometheus + Grafana (Docker Compose)
+
+A ready-to-run stack is included. With the API running on port 5055:
+
+```bash
+docker compose up -d
+```
+
+- Prometheus: <http://localhost:9090>
+- Grafana: <http://localhost:3000> (login: `admin` / `admin`)
+
+The Prometheus datasource and a RestDb dashboard are provisioned automatically.
+The dashboard shows HTTP request rate and p99 latency, per-operation database
+durations, and .NET runtime health panels.
+
+The `prometheus.yml` scrape config uses `host.docker.internal:5055` to reach
+the API running on the host. On Linux this requires Docker Engine 20.10+ with
+host networking, or you can replace `host.docker.internal` with the host's IP
+address.
 
 ## REST API Reference
 
@@ -366,13 +413,19 @@ dotnet run --project restdb/restdb.csproj -- \
 ## Development Notes
 
 - `Program.cs` chooses the REST or CLI entry point.
-- `RestApiApplication.cs` configures the REST API host and routes.
+- `RestApiApplication.cs` configures the REST API host, routes, and OTel metrics.
 - `CliApplication.cs` handles command-line CRUD operations.
 - `ApiKeyAuthentication.cs` contains the ASP.NET Core authentication handler
   and authorization policy for protected API routes.
 - `RestDb.Data/IDatabase.cs` defines the database operations.
-- `RestDb.Data/SQLiteDatabase.cs` implements those operations for SQLite.
-- `RestDb.Tests/UnitTest1.cs` contains HTTP integration tests.
+- `RestDb.Data/SQLiteDatabase.cs` implements those operations for SQLite, with
+  per-method duration histograms via `System.Diagnostics.Metrics`.
+- `RestDb.Tests/UnitTest1.cs` contains HTTP integration tests including a
+  `/metrics` smoke test.
+- `docker-compose.yml` + `prometheus.yml` bring up a local Prometheus + Grafana
+  stack.
+- `grafana/provisioning/` auto-provisions the Prometheus datasource and a
+  RestDb dashboard.
 
 Useful local checks:
 

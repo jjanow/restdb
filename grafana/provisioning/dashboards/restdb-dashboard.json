@@ -1,0 +1,79 @@
+{
+  "title": "RestDb",
+  "uid": "restdb",
+  "schemaVersion": 38,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "HTTP Request Rate",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(http_server_request_duration_seconds_count[1m])",
+          "legendFormat": "{{http_route}} {{http_request_method}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP Request Duration (p99)",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.99, rate(http_server_request_duration_seconds_bucket[1m]))",
+          "legendFormat": "p99 {{http_route}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Database Operation Duration (p99, ms)",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.99, rate(restdb_database_operation_duration_ms_bucket[1m]))",
+          "legendFormat": "p99 {{operation}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Database Operation Rate",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(restdb_database_operation_duration_ms_count[1m])",
+          "legendFormat": "{{operation}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": ".NET GC Heap Size",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "process_runtime_dotnet_gc_heap_size_bytes",
+          "legendFormat": "generation {{generation}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": ".NET Thread Pool Queue Length",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "process_runtime_dotnet_thread_pool_queue_length",
+          "legendFormat": "queue length"
+        }
+      ]
+    }
+  ]
+}

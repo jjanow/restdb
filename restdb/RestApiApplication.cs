@@ -1,3 +1,4 @@
+using OpenTelemetry.Metrics;
 using RestDb.Data;
 using System.Data.SQLite;
 using System.Text.Json;
@@ -19,6 +20,12 @@ public static class RestApiApplication
         builder.Services.AddSwaggerGen();
         builder.Services.AddSingleton<IDatabase>(_ => new SQLiteDatabase(GetConnectionString(builder.Configuration)));
         builder.Services.AddRestDbApiKeyAuthentication();
+        builder.Services.AddOpenTelemetry()
+            .WithMetrics(metrics => metrics
+                .AddAspNetCoreInstrumentation()
+                .AddRuntimeInstrumentation()
+                .AddMeter(SQLiteDatabase.MeterName)
+                .AddPrometheusExporter());
 
         WebApplication app = builder.Build();
 
@@ -26,6 +33,7 @@ public static class RestApiApplication
         app.UseSwaggerUI();
         app.UseAuthentication();
         app.UseAuthorization();
+        app.MapPrometheusScrapingEndpoint();
 
         MapRoutes(app);
 

@@ -1,10 +1,20 @@
 using System.Data.SQLite;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Text.RegularExpressions;
 
 namespace RestDb.Data;
 
 public class SQLiteDatabase : IDatabase
 {
+    public const string MeterName = "RestDb.Data";
+
+    private static readonly Meter Meter = new Meter(MeterName, "1.0");
+    private static readonly Histogram<double> OperationDuration = Meter.CreateHistogram<double>(
+        "restdb_database_operation_duration_ms",
+        unit: "ms",
+        description: "Duration of SQLiteDatabase operations in milliseconds");
+
     private static readonly Regex IdentifierPattern = new Regex("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
     private static readonly HashSet<string> AllowedColumnTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -47,259 +57,314 @@ public class SQLiteDatabase : IDatabase
 
     public long CreateRecord(string tableName, Dictionary<string, object?> record)
     {
-        ValidateIdentifier(tableName, nameof(tableName));
-
-        if (record.Count == 0)
+        return Measure("CreateRecord", () =>
         {
-            throw new ArgumentException("At least one record field is required.", nameof(record));
-        }
+            ValidateIdentifier(tableName, nameof(tableName));
 
-        List<string> columns = new List<string>();
-        List<string> values = new List<string>();
-        List<SQLiteParameter> parameters = new List<SQLiteParameter>();
-        int parameterIndex = 0;
-
-        foreach (KeyValuePair<string, object?> field in record)
-        {
-            if (field.Key.Equals("id", StringComparison.OrdinalIgnoreCase))
+            if (record.Count == 0)
             {
-                continue;
+                throw new ArgumentException("At least one record field is required.", nameof(record));
             }
 
-            ValidateIdentifier(field.Key, nameof(record));
-            string parameterName = $"@p{parameterIndex++}";
-            columns.Add(QuoteIdentifier(field.Key));
-            values.Add(parameterName);
-            parameters.Add(new SQLiteParameter(parameterName, field.Value ?? DBNull.Value));
-        }
+            List<string> columns = new List<string>();
+            List<string> values = new List<string>();
+            List<SQLiteParameter> parameters = new List<SQLiteParameter>();
+            int parameterIndex = 0;
 
-        if (columns.Count == 0)
-        {
-            throw new ArgumentException("At least one non-id record field is required.", nameof(record));
-        }
+            foreach (KeyValuePair<string, object?> field in record)
+            {
+                if (field.Key.Equals("id", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
 
-        string query = $"INSERT INTO {QuoteIdentifier(tableName)} ({string.Join(", ", columns)}) VALUES ({string.Join(", ", values)}); SELECT last_insert_rowid();";
-        using SQLiteConnection connection = CreateConnection();
-        using SQLiteCommand command = new SQLiteCommand(query, connection);
+                ValidateIdentifier(field.Key, nameof(record));
+                string parameterName = $"@p{parameterIndex++}";
+                columns.Add(QuoteIdentifier(field.Key));
+                values.Add(parameterName);
+                parameters.Add(new SQLiteParameter(parameterName, field.Value ?? DBNull.Value));
+            }
 
-        connection.Open();
-        command.Parameters.AddRange(parameters.ToArray());
-        return (long)command.ExecuteScalar();
+            if (columns.Count == 0)
+            {
+                throw new ArgumentException("At least one non-id record field is required.", nameof(record));
+            }
+
+            string query = $"INSERT INTO {QuoteIdentifier(tableName)} ({string.Join(", ", columns)}) VALUES ({string.Join(", ", values)}); SELECT last_insert_rowid();";
+            using SQLiteConnection connection = CreateConnection();
+            using SQLiteCommand command = new SQLiteCommand(query, connection);
+
+            connection.Open();
+            command.Parameters.AddRange(parameters.ToArray());
+            return (long)command.ExecuteScalar();
+        });
     }
 
     public RecordReadResult ReadRecords(string tableName, RecordReadOptions? options = null)
     {
-        ValidateIdentifier(tableName, nameof(tableName));
+        return Measure("ReadRecords", () =>
+        {
+            ValidateIdentifier(tableName, nameof(tableName));
 
-        RecordReadOptions effectiveOptions = NormalizeReadOptions(options);
+            RecordReadOptions effectiveOptions = NormalizeReadOptions(options);
 
-        using SQLiteConnection connection = CreateConnection();
-        connection.Open();
+            using SQLiteConnection connection = CreateConnection();
+            connection.Open();
 
-        ValidateReadColumns(connection, tableName, effectiveOptions);
-        List<SQLiteParameter> parameters = new List<SQLiteParameter>();
-        string whereClause = BuildFilterClause(effectiveOptions, parameters);
+            ValidateReadColumns(connection, tableName, effectiveOptions);
+            List<SQLiteParameter> parameters = new List<SQLiteParameter>();
+            string whereClause = BuildFilterClause(effectiveOptions, parameters);
 
-        int totalCount = ReadRecordCount(connection, tableName, whereClause, parameters);
-        List<Dictionary<string, object?>> records = ReadRecordPage(connection, tableName, whereClause, parameters, effectiveOptions);
+            int totalCount = ReadRecordCount(connection, tableName, whereClause, parameters);
+            List<Dictionary<string, object?>> records = ReadRecordPage(connection, tableName, whereClause, parameters, effectiveOptions);
 
-        return new RecordReadResult(records, effectiveOptions.Page, effectiveOptions.PageSize, totalCount);
+            return new RecordReadResult(records, effectiveOptions.Page, effectiveOptions.PageSize, totalCount);
+        });
     }
 
     public Dictionary<string, object?>? ReadRecord(string tableName, int id)
     {
-        ValidateIdentifier(tableName, nameof(tableName));
+        return Measure("ReadRecord", () =>
+        {
+            ValidateIdentifier(tableName, nameof(tableName));
 
-        string query = $"SELECT * FROM {QuoteIdentifier(tableName)} WHERE id = @id";
-        using SQLiteConnection connection = CreateConnection();
-        using SQLiteCommand command = new SQLiteCommand(query, connection);
+            string query = $"SELECT * FROM {QuoteIdentifier(tableName)} WHERE id = @id";
+            using SQLiteConnection connection = CreateConnection();
+            using SQLiteCommand command = new SQLiteCommand(query, connection);
 
-        connection.Open();
-        command.Parameters.AddWithValue("@id", id);
+            connection.Open();
+            command.Parameters.AddWithValue("@id", id);
 
-        using SQLiteDataReader reader = command.ExecuteReader();
-        return reader.Read() ? ReadCurrentRecord(reader) : null;
+            using SQLiteDataReader reader = command.ExecuteReader();
+            return reader.Read() ? ReadCurrentRecord(reader) : null;
+        });
     }
 
     public bool UpdateRecord(string tableName, Dictionary<string, object?> record)
     {
-        ValidateIdentifier(tableName, nameof(tableName));
-
-        if (!record.TryGetValue("id", out object? idValue) || idValue is null)
+        return Measure("UpdateRecord", () =>
         {
-            throw new ArgumentException("The record must include an id value.", nameof(record));
-        }
+            ValidateIdentifier(tableName, nameof(tableName));
 
-        List<string> assignments = new List<string>();
-        List<SQLiteParameter> parameters = new List<SQLiteParameter>
-        {
-            new SQLiteParameter("@id", idValue)
-        };
-        int parameterIndex = 0;
+            if (!record.TryGetValue("id", out object? idValue) || idValue is null)
+            {
+                throw new ArgumentException("The record must include an id value.", nameof(record));
+            }
 
-        foreach (KeyValuePair<string, object?> field in record.Where(field => !field.Key.Equals("id", StringComparison.OrdinalIgnoreCase)))
-        {
-            ValidateIdentifier(field.Key, nameof(record));
-            string parameterName = $"@p{parameterIndex++}";
-            assignments.Add($"{QuoteIdentifier(field.Key)} = {parameterName}");
-            parameters.Add(new SQLiteParameter(parameterName, field.Value ?? DBNull.Value));
-        }
+            List<string> assignments = new List<string>();
+            List<SQLiteParameter> parameters = new List<SQLiteParameter>
+            {
+                new SQLiteParameter("@id", idValue)
+            };
+            int parameterIndex = 0;
 
-        if (assignments.Count == 0)
-        {
-            throw new ArgumentException("At least one field is required to update a record.", nameof(record));
-        }
+            foreach (KeyValuePair<string, object?> field in record.Where(field => !field.Key.Equals("id", StringComparison.OrdinalIgnoreCase)))
+            {
+                ValidateIdentifier(field.Key, nameof(record));
+                string parameterName = $"@p{parameterIndex++}";
+                assignments.Add($"{QuoteIdentifier(field.Key)} = {parameterName}");
+                parameters.Add(new SQLiteParameter(parameterName, field.Value ?? DBNull.Value));
+            }
 
-        string query = $"UPDATE {QuoteIdentifier(tableName)} SET {string.Join(", ", assignments)} WHERE id = @id";
-        using SQLiteConnection connection = CreateConnection();
-        using SQLiteCommand command = new SQLiteCommand(query, connection);
+            if (assignments.Count == 0)
+            {
+                throw new ArgumentException("At least one field is required to update a record.", nameof(record));
+            }
 
-        connection.Open();
-        command.Parameters.AddRange(parameters.ToArray());
-        return command.ExecuteNonQuery() > 0;
+            string query = $"UPDATE {QuoteIdentifier(tableName)} SET {string.Join(", ", assignments)} WHERE id = @id";
+            using SQLiteConnection connection = CreateConnection();
+            using SQLiteCommand command = new SQLiteCommand(query, connection);
+
+            connection.Open();
+            command.Parameters.AddRange(parameters.ToArray());
+            return command.ExecuteNonQuery() > 0;
+        });
     }
 
     public bool DeleteRecord(string tableName, int id)
     {
-        ValidateIdentifier(tableName, nameof(tableName));
+        return Measure("DeleteRecord", () =>
+        {
+            ValidateIdentifier(tableName, nameof(tableName));
 
-        string query = $"DELETE FROM {QuoteIdentifier(tableName)} WHERE id = @id";
-        using SQLiteConnection connection = CreateConnection();
-        using SQLiteCommand command = new SQLiteCommand(query, connection);
+            string query = $"DELETE FROM {QuoteIdentifier(tableName)} WHERE id = @id";
+            using SQLiteConnection connection = CreateConnection();
+            using SQLiteCommand command = new SQLiteCommand(query, connection);
 
-        connection.Open();
-        command.Parameters.AddWithValue("@id", id);
-        return command.ExecuteNonQuery() > 0;
+            connection.Open();
+            command.Parameters.AddWithValue("@id", id);
+            return command.ExecuteNonQuery() > 0;
+        });
     }
 
     public bool CreateTable(string tableName, List<string> columns)
     {
-        ValidateIdentifier(tableName, nameof(tableName));
-
-        if (TableExists(tableName))
+        return Measure("CreateTable", () =>
         {
-            return false;
-        }
+            ValidateIdentifier(tableName, nameof(tableName));
 
-        List<string> definitions = new List<string> { "id INTEGER PRIMARY KEY AUTOINCREMENT" };
+            if (TableExists(tableName))
+            {
+                return false;
+            }
 
-        definitions.AddRange(columns.Select(ParseColumnDefinition));
+            List<string> definitions = new List<string> { "id INTEGER PRIMARY KEY AUTOINCREMENT" };
 
-        string query = $"CREATE TABLE {QuoteIdentifier(tableName)} ({string.Join(", ", definitions)})";
-        using SQLiteConnection connection = CreateConnection();
-        using SQLiteCommand command = new SQLiteCommand(query, connection);
+            definitions.AddRange(columns.Select(ParseColumnDefinition));
 
-        connection.Open();
-        command.ExecuteNonQuery();
-        return true;
+            string query = $"CREATE TABLE {QuoteIdentifier(tableName)} ({string.Join(", ", definitions)})";
+            using SQLiteConnection connection = CreateConnection();
+            using SQLiteCommand command = new SQLiteCommand(query, connection);
+
+            connection.Open();
+            command.ExecuteNonQuery();
+            return true;
+        });
     }
 
     public bool AddColumn(string tableName, string column)
     {
-        ValidateIdentifier(tableName, nameof(tableName));
-
-        if (!TableExists(tableName))
+        return Measure("AddColumn", () =>
         {
-            return false;
-        }
+            ValidateIdentifier(tableName, nameof(tableName));
 
-        string query = $"ALTER TABLE {QuoteIdentifier(tableName)} ADD COLUMN {ParseColumnDefinition(column)}";
-        using SQLiteConnection connection = CreateConnection();
-        using SQLiteCommand command = new SQLiteCommand(query, connection);
+            if (!TableExists(tableName))
+            {
+                return false;
+            }
 
-        connection.Open();
-        command.ExecuteNonQuery();
-        return true;
+            string query = $"ALTER TABLE {QuoteIdentifier(tableName)} ADD COLUMN {ParseColumnDefinition(column)}";
+            using SQLiteConnection connection = CreateConnection();
+            using SQLiteCommand command = new SQLiteCommand(query, connection);
+
+            connection.Open();
+            command.ExecuteNonQuery();
+            return true;
+        });
     }
 
     public bool RenameColumn(string tableName, string columnName, string newColumnName)
     {
-        ValidateIdentifier(tableName, nameof(tableName));
-        ValidateIdentifier(columnName, nameof(columnName));
-        ValidateIdentifier(newColumnName, nameof(newColumnName));
-
-        if (!TableExists(tableName))
+        return Measure("RenameColumn", () =>
         {
-            return false;
-        }
+            ValidateIdentifier(tableName, nameof(tableName));
+            ValidateIdentifier(columnName, nameof(columnName));
+            ValidateIdentifier(newColumnName, nameof(newColumnName));
 
-        string query = $"ALTER TABLE {QuoteIdentifier(tableName)} RENAME COLUMN {QuoteIdentifier(columnName)} TO {QuoteIdentifier(newColumnName)}";
-        using SQLiteConnection connection = CreateConnection();
-        using SQLiteCommand command = new SQLiteCommand(query, connection);
+            if (!TableExists(tableName))
+            {
+                return false;
+            }
 
-        connection.Open();
-        command.ExecuteNonQuery();
-        return true;
+            string query = $"ALTER TABLE {QuoteIdentifier(tableName)} RENAME COLUMN {QuoteIdentifier(columnName)} TO {QuoteIdentifier(newColumnName)}";
+            using SQLiteConnection connection = CreateConnection();
+            using SQLiteCommand command = new SQLiteCommand(query, connection);
+
+            connection.Open();
+            command.ExecuteNonQuery();
+            return true;
+        });
     }
 
     public bool DropColumn(string tableName, string columnName)
     {
-        ValidateIdentifier(tableName, nameof(tableName));
-        ValidateIdentifier(columnName, nameof(columnName));
-
-        if (!TableExists(tableName))
+        return Measure("DropColumn", () =>
         {
-            return false;
-        }
+            ValidateIdentifier(tableName, nameof(tableName));
+            ValidateIdentifier(columnName, nameof(columnName));
 
-        string query = $"ALTER TABLE {QuoteIdentifier(tableName)} DROP COLUMN {QuoteIdentifier(columnName)}";
-        using SQLiteConnection connection = CreateConnection();
-        using SQLiteCommand command = new SQLiteCommand(query, connection);
+            if (!TableExists(tableName))
+            {
+                return false;
+            }
 
-        connection.Open();
-        command.ExecuteNonQuery();
-        return true;
+            string query = $"ALTER TABLE {QuoteIdentifier(tableName)} DROP COLUMN {QuoteIdentifier(columnName)}";
+            using SQLiteConnection connection = CreateConnection();
+            using SQLiteCommand command = new SQLiteCommand(query, connection);
+
+            connection.Open();
+            command.ExecuteNonQuery();
+            return true;
+        });
     }
 
     public bool TableExists(string tableName)
     {
-        ValidateIdentifier(tableName, nameof(tableName));
+        return Measure("TableExists", () =>
+        {
+            ValidateIdentifier(tableName, nameof(tableName));
 
-        string query = "SELECT name FROM sqlite_master WHERE type = 'table' AND name = @tableName";
-        using SQLiteConnection connection = CreateConnection();
-        using SQLiteCommand command = new SQLiteCommand(query, connection);
+            string query = "SELECT name FROM sqlite_master WHERE type = 'table' AND name = @tableName";
+            using SQLiteConnection connection = CreateConnection();
+            using SQLiteCommand command = new SQLiteCommand(query, connection);
 
-        connection.Open();
-        command.Parameters.AddWithValue("@tableName", tableName);
-        using SQLiteDataReader reader = command.ExecuteReader();
-        return reader.HasRows;
+            connection.Open();
+            command.Parameters.AddWithValue("@tableName", tableName);
+            using SQLiteDataReader reader = command.ExecuteReader();
+            return reader.HasRows;
+        });
     }
 
     public IReadOnlyList<TableSummary> ListTables()
     {
-        const string query = "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name";
-        using SQLiteConnection connection = CreateConnection();
-        using SQLiteCommand command = new SQLiteCommand(query, connection);
-
-        connection.Open();
-        using SQLiteDataReader reader = command.ExecuteReader();
-
-        List<TableSummary> tables = new List<TableSummary>();
-        while (reader.Read())
+        return Measure("ListTables", () =>
         {
-            tables.Add(new TableSummary(reader.GetString(0)));
-        }
+            const string query = "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name";
+            using SQLiteConnection connection = CreateConnection();
+            using SQLiteCommand command = new SQLiteCommand(query, connection);
 
-        return tables;
+            connection.Open();
+            using SQLiteDataReader reader = command.ExecuteReader();
+
+            List<TableSummary> tables = new List<TableSummary>();
+            while (reader.Read())
+            {
+                tables.Add(new TableSummary(reader.GetString(0)));
+            }
+
+            return tables;
+        });
     }
 
     public TableSchema? GetTableSchema(string tableName)
     {
-        ValidateIdentifier(tableName, nameof(tableName));
-
-        if (!TableExists(tableName))
+        return Measure("GetTableSchema", () =>
         {
-            return null;
-        }
+            ValidateIdentifier(tableName, nameof(tableName));
 
-        using SQLiteConnection connection = CreateConnection();
-        connection.Open();
-        return new TableSchema(tableName, ReadSchemaFromConnection(connection, tableName));
+            if (!TableExists(tableName))
+            {
+                return null;
+            }
+
+            using SQLiteConnection connection = CreateConnection();
+            connection.Open();
+            return new TableSchema(tableName, ReadSchemaFromConnection(connection, tableName));
+        });
     }
 
     private SQLiteConnection CreateConnection()
     {
         return new SQLiteConnection(connectionString, true);
+    }
+
+    private static T Measure<T>(string operation, Func<T> work)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            return work();
+        }
+        finally
+        {
+            double elapsedMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+            OperationDuration.Record(elapsedMs, new KeyValuePair<string, object?>("operation", operation));
+        }
+    }
+
+    private static void Measure(string operation, Action work)
+    {
+        Measure<int>(operation, () => { work(); return 0; });
     }
 
     private static RecordReadOptions NormalizeReadOptions(RecordReadOptions? options)

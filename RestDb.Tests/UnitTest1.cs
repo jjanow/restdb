@@ -241,6 +241,25 @@ public class RestApiTests : IDisposable
     }
 
     [Fact]
+    public async Task MetricsEndpointExposesRestDbHistogram()
+    {
+        HttpClient client = factory.CreateClient();
+
+        // Trigger a database operation so the histogram is recorded.
+        await client.PostAsJsonAsync("/tables", new
+        {
+            name = "probe",
+            columns = new[] { new { name = "value", type = "TEXT" } }
+        });
+
+        HttpResponseMessage metrics = await client.GetAsync("/metrics");
+
+        Assert.Equal(HttpStatusCode.OK, metrics.StatusCode);
+        string body = await metrics.Content.ReadAsStringAsync();
+        Assert.Contains("restdb_database_operation_duration_ms", body);
+    }
+
+    [Fact]
     public async Task InvalidTableNamesReturnBadRequest()
     {
         HttpClient client = factory.CreateClient();
