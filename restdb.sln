@@ -7,6 +7,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RestDb", "restdb\restdb.csp
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RestDb.Tests", "RestDb.Tests\RestDb.Tests.csproj", "{70185A36-0834-4CC3-80D8-243BFA52E176}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RestDb.Data", "RestDb.Data\RestDb.Data.csproj", "{67ED4856-EF2E-457D-BC4C-53021F0B4E75}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{70185A36-0834-4CC3-80D8-243BFA52E176}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{70185A36-0834-4CC3-80D8-243BFA52E176}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{70185A36-0834-4CC3-80D8-243BFA52E176}.Release|Any CPU.Build.0 = Release|Any CPU
+		{67ED4856-EF2E-457D-BC4C-53021F0B4E75}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{67ED4856-EF2E-457D-BC4C-53021F0B4E75}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{67ED4856-EF2E-457D-BC4C-53021F0B4E75}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{67ED4856-EF2E-457D-BC4C-53021F0B4E75}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

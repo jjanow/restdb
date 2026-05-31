@@ -1,5 +1,4 @@
-﻿using RestDb.Classes;
-using RestDb.Interfaces;
+﻿using RestDb.Data;
 using System.Data.SQLite;
 using System.Text.Json;
 
@@ -20,11 +19,22 @@ namespace RestDb
             }
 
             WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+            builder.Services.AddEndpointsApiExplorer();
+            builder.Services.AddSwaggerGen();
             builder.Services.AddSingleton<IDatabase>(_ => new SQLiteDatabase(GetApiConnectionString(builder.Configuration)));
 
             WebApplication app = builder.Build();
 
+            app.UseSwagger();
+            app.UseSwaggerUI();
+            app.UseApiKeyAuthorization();
+
             app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+
+            app.MapGet("/tables", (IDatabase database) =>
+            {
+                return Results.Ok(database.ListTables());
+            });
 
             app.MapPost("/tables", (CreateTableRequest request, IDatabase database) =>
             {
@@ -48,19 +58,70 @@ namespace RestDb
                 }
             });
 
-            app.MapGet("/tables/{tableName}/records", (string tableName, IDatabase database) =>
+            app.MapGet("/tables/{tableName}/schema", (string tableName, IDatabase database) =>
             {
                 try
                 {
-                    return Results.Ok(database.ReadRecords(tableName));
+                    TableSchema? schema = database.GetTableSchema(tableName);
+                    return schema is null
+                        ? Results.NotFound(TableNotFound(tableName))
+                        : Results.Ok(schema);
                 }
                 catch (ArgumentException ex)
                 {
-                    return Results.BadRequest(new ErrorResponse(ex.Message));
+                    return Results.BadRequest(new ErrorResponse("Invalid table name.", ex.Message));
                 }
-                catch (SQLiteException)
+            });
+
+            app.MapPost("/tables/{tableName}/columns", (string tableName, ColumnDefinition request, IDatabase database) =>
+            {
+                try
                 {
-                    return Results.NotFound(new ErrorResponse($"Table '{tableName}' was not found."));
+                    bool migrated = database.AddColumn(tableName, $"{request.Name}:{request.Type}");
+                    return migrated
+                        ? Results.Ok(database.GetTableSchema(tableName))
+                        : Results.NotFound(TableNotFound(tableName));
+                }
+                catch (ArgumentException ex)
+                {
+                    return Results.BadRequest(new ErrorResponse("Invalid column definition.", ex.Message));
+                }
+                catch (SQLiteException ex)
+                {
+                    return Results.BadRequest(new ErrorResponse("Unable to add column.", ex.Message));
+                }
+            });
+
+            app.MapGet("/tables/{tableName}/records", (string tableName, int? page, int? pageSize, string? filterColumn, string? filterValue, IDatabase database) =>
+            {
+                try
+                {
+                    if (!database.TableExists(tableName))
+                    {
+                        return Results.NotFound(TableNotFound(tableName));
+                    }
+
+                    RecordReadOptions options = new RecordReadOptions(
+                        Page: page ?? 1,
+                        PageSize: pageSize ?? 50,
+                        FilterColumn: filterColumn,
+                        FilterValue: filterValue);
+                    RecordReadResult result = database.ReadRecords(tableName, options);
+
+                    return Results.Ok(new PagedRecordsResponse(
+                        result.Records,
+                        result.Page,
+                        result.PageSize,
+                        result.TotalCount,
+                        (int)Math.Ceiling(result.TotalCount / (double)result.PageSize)));
+                }
+                catch (ArgumentException ex)
+                {
+                    return Results.BadRequest(new ErrorResponse("Invalid record query.", ex.Message));
+                }
+                catch (SQLiteException ex)
+                {
+                    return Results.BadRequest(new ErrorResponse("Unable to read records.", ex.Message));
                 }
             });
 
@@ -68,6 +129,11 @@ namespace RestDb
             {
                 try
                 {
+                    if (!database.TableExists(tableName))
+                    {
+                        return Results.NotFound(TableNotFound(tableName));
+                    }
+
                     Dictionary<string, object?>? record = database.ReadRecord(tableName, id);
                     return record is null
                         ? Results.NotFound(new ErrorResponse($"Record with ID {id} was not found."))
@@ -75,11 +141,11 @@ namespace RestDb
                 }
                 catch (ArgumentException ex)
                 {
-                    return Results.BadRequest(new ErrorResponse(ex.Message));
+                    return Results.BadRequest(new ErrorResponse("Invalid record query.", ex.Message));
                 }
-                catch (SQLiteException)
+                catch (SQLiteException ex)
                 {
-                    return Results.NotFound(new ErrorResponse($"Table '{tableName}' was not found."));
+                    return Results.BadRequest(new ErrorResponse("Unable to read record.", ex.Message));
                 }
             });
 
@@ -215,11 +281,12 @@ namespace RestDb
                     }
                     else
                     {
-                        List<Dictionary<string, object?>> records = database.ReadRecords(switches["-table"]);
-                        if (records != null && records.Count > 0)
+                        RecordReadOptions options = GetRecordReadOptions(switches);
+                        RecordReadResult result = database.ReadRecords(switches["-table"], options);
+                        if (result.Records.Count > 0)
                         {
-                            Console.WriteLine($"Table: {switches["-table"]}");
-                            foreach (Dictionary<string, object?> record in records)
+                            Console.WriteLine($"Table: {switches["-table"]} (page {result.Page}, page size {result.PageSize}, total {result.TotalCount})");
+                            foreach (Dictionary<string, object?> record in result.Records)
                             {
                                 Console.WriteLine($"Record ID: {record["id"]}");
                                 foreach (KeyValuePair<string, object?> kvp in record)
@@ -237,6 +304,47 @@ namespace RestDb
                             Console.WriteLine($"No records found in table {switches["-table"]}.");
                         }
                     }
+                    break;
+
+                case "tables":
+                    foreach (TableSummary table in database.ListTables())
+                    {
+                        Console.WriteLine(table.Name);
+                    }
+                    break;
+
+                case "schema":
+                    if (!switches.ContainsKey("-table"))
+                    {
+                        Console.WriteLine("Table is required to inspect schema.");
+                        return;
+                    }
+
+                    TableSchema? schema = database.GetTableSchema(switches["-table"]);
+                    if (schema is null)
+                    {
+                        Console.WriteLine($"Table '{switches["-table"]}' was not found.");
+                        return;
+                    }
+
+                    Console.WriteLine($"Table: {schema.Name}");
+                    foreach (ColumnSchema column in schema.Columns)
+                    {
+                        string primaryKey = column.PrimaryKey ? " primary key" : string.Empty;
+                        string nullable = column.NotNull ? " not null" : string.Empty;
+                        Console.WriteLine($"{column.Name}: {column.Type}{primaryKey}{nullable}");
+                    }
+                    break;
+
+                case "add-column":
+                    if (!switches.ContainsKey("-table") || !switches.ContainsKey("-column"))
+                    {
+                        Console.WriteLine("Table and column are required to add a column.");
+                        return;
+                    }
+
+                    bool migrated = database.AddColumn(switches["-table"], switches["-column"]);
+                    Console.WriteLine(migrated ? $"Column added to table '{switches["-table"]}'." : $"Table '{switches["-table"]}' was not found.");
                     break;
 
                 case "update":
@@ -278,7 +386,7 @@ namespace RestDb
                     break;
 
                 default:
-                    Console.WriteLine("Specify -operation create, insert, read, update, or delete.");
+                    Console.WriteLine("Specify -operation create, insert, read, update, delete, tables, schema, or add-column.");
                     break;
             }
         }
@@ -310,8 +418,13 @@ namespace RestDb
                 "-table",
                 "-id",
                 "-columns",
+                "-column",
                 "-connection",
-                "-database"
+                "-database",
+                "-page",
+                "-pagesize",
+                "-filtercolumn",
+                "-filtervalue"
             };
 
             return switches
@@ -341,6 +454,27 @@ namespace RestDb
                 : DefaultConnectionString;
         }
 
+        private static RecordReadOptions GetRecordReadOptions(Dictionary<string, string> switches)
+        {
+            int page = 1;
+            int pageSize = 50;
+
+            if (switches.TryGetValue("-page", out string? pageValue) && !Int32.TryParse(pageValue, out page))
+            {
+                page = 1;
+            }
+
+            if (switches.TryGetValue("-pagesize", out string? pageSizeValue) && !Int32.TryParse(pageSizeValue, out pageSize))
+            {
+                pageSize = 50;
+            }
+
+            switches.TryGetValue("-filtercolumn", out string? filterColumn);
+            switches.TryGetValue("-filtervalue", out string? filterValue);
+
+            return new RecordReadOptions(page, pageSize, filterColumn, filterValue);
+        }
+
         private static Dictionary<string, object?> ConvertRecord(Dictionary<string, JsonElement> request)
         {
             return request.ToDictionary(field => field.Key, field => ConvertJsonElement(field.Value), StringComparer.OrdinalIgnoreCase);
@@ -359,6 +493,11 @@ namespace RestDb
                 _ => element.GetRawText()
             };
         }
+
+        private static ErrorResponse TableNotFound(string tableName)
+        {
+            return new ErrorResponse($"Table '{tableName}' was not found.", "Create the table first or verify the table name.");
+        }
     }
 
     public record CreateTableRequest(string Name, List<ColumnDefinition> Columns);
@@ -367,5 +506,44 @@ namespace RestDb
 
     public record TableResponse(string Name, List<string> Columns);
 
-    public record ErrorResponse(string Error);
+    public record PagedRecordsResponse(IReadOnlyList<Dictionary<string, object?>> Records, int Page, int PageSize, int TotalCount, int TotalPages);
+
+    public record ErrorResponse(string Error, string? Detail = null);
+
+    public static class ApiKeyAuthorizationExtensions
+    {
+        private const string ApiKeyHeaderName = "X-API-Key";
+
+        public static IApplicationBuilder UseApiKeyAuthorization(this IApplicationBuilder app)
+        {
+            return app.Use(async (context, next) =>
+            {
+                string? configuredApiKey = context.RequestServices
+                    .GetRequiredService<IConfiguration>()["RestDb:ApiKey"];
+
+                if (string.IsNullOrWhiteSpace(configuredApiKey) || IsPublicRequest(context))
+                {
+                    await next();
+                    return;
+                }
+
+                if (context.Request.Headers.TryGetValue(ApiKeyHeaderName, out Microsoft.Extensions.Primitives.StringValues providedApiKey)
+                    && providedApiKey == configuredApiKey)
+                {
+                    await next();
+                    return;
+                }
+
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsJsonAsync(new ErrorResponse("A valid API key is required."));
+            });
+        }
+
+        private static bool IsPublicRequest(HttpContext context)
+        {
+            PathString path = context.Request.Path;
+            return path.StartsWithSegments("/health") || path.StartsWithSegments("/swagger");
+        }
+    }
 }

@@ -1,0 +1,369 @@
+using System.Data.SQLite;
+using System.Text.RegularExpressions;
+
+namespace RestDb.Data;
+
+public class SQLiteDatabase : IDatabase
+{
+    private static readonly Regex IdentifierPattern = new Regex("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
+    private static readonly HashSet<string> AllowedColumnTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "TEXT",
+        "INTEGER",
+        "REAL",
+        "BLOB",
+        "NUMERIC"
+    };
+
+    private readonly string connectionString;
+
+    public SQLiteDatabase(string connectionString)
+    {
+        this.connectionString = connectionString;
+    }
+
+    public long CreateRecord(string tableName, Dictionary<string, object?> record)
+    {
+        ValidateIdentifier(tableName, nameof(tableName));
+
+        if (record.Count == 0)
+        {
+            throw new ArgumentException("At least one record field is required.", nameof(record));
+        }
+
+        List<string> columns = new List<string>();
+        List<string> values = new List<string>();
+        List<SQLiteParameter> parameters = new List<SQLiteParameter>();
+        int parameterIndex = 0;
+
+        foreach (KeyValuePair<string, object?> field in record)
+        {
+            if (field.Key.Equals("id", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            ValidateIdentifier(field.Key, nameof(record));
+            string parameterName = $"@p{parameterIndex++}";
+            columns.Add(QuoteIdentifier(field.Key));
+            values.Add(parameterName);
+            parameters.Add(new SQLiteParameter(parameterName, field.Value ?? DBNull.Value));
+        }
+
+        if (columns.Count == 0)
+        {
+            throw new ArgumentException("At least one non-id record field is required.", nameof(record));
+        }
+
+        string query = $"INSERT INTO {QuoteIdentifier(tableName)} ({string.Join(", ", columns)}) VALUES ({string.Join(", ", values)}); SELECT last_insert_rowid();";
+        using SQLiteConnection connection = CreateConnection();
+        using SQLiteCommand command = new SQLiteCommand(query, connection);
+
+        connection.Open();
+        command.Parameters.AddRange(parameters.ToArray());
+        return (long)command.ExecuteScalar();
+    }
+
+    public RecordReadResult ReadRecords(string tableName, RecordReadOptions? options = null)
+    {
+        ValidateIdentifier(tableName, nameof(tableName));
+
+        RecordReadOptions effectiveOptions = NormalizeReadOptions(options);
+        List<SQLiteParameter> parameters = new List<SQLiteParameter>();
+        string whereClause = BuildFilterClause(effectiveOptions, parameters);
+
+        using SQLiteConnection connection = CreateConnection();
+        connection.Open();
+
+        int totalCount = ReadRecordCount(connection, tableName, whereClause, parameters);
+        List<Dictionary<string, object?>> records = ReadRecordPage(connection, tableName, whereClause, parameters, effectiveOptions);
+
+        return new RecordReadResult(records, effectiveOptions.Page, effectiveOptions.PageSize, totalCount);
+    }
+
+    public Dictionary<string, object?>? ReadRecord(string tableName, int id)
+    {
+        ValidateIdentifier(tableName, nameof(tableName));
+
+        string query = $"SELECT * FROM {QuoteIdentifier(tableName)} WHERE id = @id";
+        using SQLiteConnection connection = CreateConnection();
+        using SQLiteCommand command = new SQLiteCommand(query, connection);
+
+        connection.Open();
+        command.Parameters.AddWithValue("@id", id);
+
+        using SQLiteDataReader reader = command.ExecuteReader();
+        return reader.Read() ? ReadCurrentRecord(reader) : null;
+    }
+
+    public bool UpdateRecord(string tableName, Dictionary<string, object?> record)
+    {
+        ValidateIdentifier(tableName, nameof(tableName));
+
+        if (!record.TryGetValue("id", out object? idValue) || idValue is null)
+        {
+            throw new ArgumentException("The record must include an id value.", nameof(record));
+        }
+
+        List<string> assignments = new List<string>();
+        List<SQLiteParameter> parameters = new List<SQLiteParameter>
+        {
+            new SQLiteParameter("@id", idValue)
+        };
+        int parameterIndex = 0;
+
+        foreach (KeyValuePair<string, object?> field in record.Where(field => !field.Key.Equals("id", StringComparison.OrdinalIgnoreCase)))
+        {
+            ValidateIdentifier(field.Key, nameof(record));
+            string parameterName = $"@p{parameterIndex++}";
+            assignments.Add($"{QuoteIdentifier(field.Key)} = {parameterName}");
+            parameters.Add(new SQLiteParameter(parameterName, field.Value ?? DBNull.Value));
+        }
+
+        if (assignments.Count == 0)
+        {
+            throw new ArgumentException("At least one field is required to update a record.", nameof(record));
+        }
+
+        string query = $"UPDATE {QuoteIdentifier(tableName)} SET {string.Join(", ", assignments)} WHERE id = @id";
+        using SQLiteConnection connection = CreateConnection();
+        using SQLiteCommand command = new SQLiteCommand(query, connection);
+
+        connection.Open();
+        command.Parameters.AddRange(parameters.ToArray());
+        return command.ExecuteNonQuery() > 0;
+    }
+
+    public bool DeleteRecord(string tableName, int id)
+    {
+        ValidateIdentifier(tableName, nameof(tableName));
+
+        string query = $"DELETE FROM {QuoteIdentifier(tableName)} WHERE id = @id";
+        using SQLiteConnection connection = CreateConnection();
+        using SQLiteCommand command = new SQLiteCommand(query, connection);
+
+        connection.Open();
+        command.Parameters.AddWithValue("@id", id);
+        return command.ExecuteNonQuery() > 0;
+    }
+
+    public bool CreateTable(string tableName, List<string> columns)
+    {
+        ValidateIdentifier(tableName, nameof(tableName));
+
+        if (TableExists(tableName))
+        {
+            return false;
+        }
+
+        List<string> definitions = new List<string> { "id INTEGER PRIMARY KEY AUTOINCREMENT" };
+
+        definitions.AddRange(columns.Select(ParseColumnDefinition));
+
+        string query = $"CREATE TABLE {QuoteIdentifier(tableName)} ({string.Join(", ", definitions)})";
+        using SQLiteConnection connection = CreateConnection();
+        using SQLiteCommand command = new SQLiteCommand(query, connection);
+
+        connection.Open();
+        command.ExecuteNonQuery();
+        return true;
+    }
+
+    public bool AddColumn(string tableName, string column)
+    {
+        ValidateIdentifier(tableName, nameof(tableName));
+
+        if (!TableExists(tableName))
+        {
+            return false;
+        }
+
+        string query = $"ALTER TABLE {QuoteIdentifier(tableName)} ADD COLUMN {ParseColumnDefinition(column)}";
+        using SQLiteConnection connection = CreateConnection();
+        using SQLiteCommand command = new SQLiteCommand(query, connection);
+
+        connection.Open();
+        command.ExecuteNonQuery();
+        return true;
+    }
+
+    public bool TableExists(string tableName)
+    {
+        ValidateIdentifier(tableName, nameof(tableName));
+
+        string query = "SELECT name FROM sqlite_master WHERE type = 'table' AND name = @tableName";
+        using SQLiteConnection connection = CreateConnection();
+        using SQLiteCommand command = new SQLiteCommand(query, connection);
+
+        connection.Open();
+        command.Parameters.AddWithValue("@tableName", tableName);
+        using SQLiteDataReader reader = command.ExecuteReader();
+        return reader.HasRows;
+    }
+
+    public IReadOnlyList<TableSummary> ListTables()
+    {
+        const string query = "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name";
+        using SQLiteConnection connection = CreateConnection();
+        using SQLiteCommand command = new SQLiteCommand(query, connection);
+
+        connection.Open();
+        using SQLiteDataReader reader = command.ExecuteReader();
+
+        List<TableSummary> tables = new List<TableSummary>();
+        while (reader.Read())
+        {
+            tables.Add(new TableSummary(reader.GetString(0)));
+        }
+
+        return tables;
+    }
+
+    public TableSchema? GetTableSchema(string tableName)
+    {
+        ValidateIdentifier(tableName, nameof(tableName));
+
+        if (!TableExists(tableName))
+        {
+            return null;
+        }
+
+        using SQLiteConnection connection = CreateConnection();
+        using SQLiteCommand command = new SQLiteCommand($"PRAGMA table_info({QuoteIdentifier(tableName)})", connection);
+
+        connection.Open();
+        using SQLiteDataReader reader = command.ExecuteReader();
+
+        List<ColumnSchema> columns = new List<ColumnSchema>();
+        while (reader.Read())
+        {
+            columns.Add(new ColumnSchema(
+                reader.GetInt32(0),
+                reader.GetString(1),
+                reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                reader.GetInt32(3) == 1,
+                reader.IsDBNull(4) ? null : reader.GetValue(4).ToString(),
+                reader.GetInt32(5) == 1));
+        }
+
+        return new TableSchema(tableName, columns);
+    }
+
+    private SQLiteConnection CreateConnection()
+    {
+        return new SQLiteConnection(connectionString, true);
+    }
+
+    private static RecordReadOptions NormalizeReadOptions(RecordReadOptions? options)
+    {
+        int page = Math.Max(options?.Page ?? 1, 1);
+        int pageSize = Math.Clamp(options?.PageSize ?? 50, 1, 500);
+
+        return new RecordReadOptions(
+            page,
+            pageSize,
+            string.IsNullOrWhiteSpace(options?.FilterColumn) ? null : options.FilterColumn,
+            string.IsNullOrWhiteSpace(options?.FilterValue) ? null : options.FilterValue);
+    }
+
+    private static string ParseColumnDefinition(string column)
+    {
+        string[] parts = column.Split(':', StringSplitOptions.TrimEntries);
+        if (parts.Length != 2)
+        {
+            throw new ArgumentException($"Invalid column format: {column}");
+        }
+
+        ValidateIdentifier(parts[0], nameof(column));
+        string columnType = parts[1].ToUpperInvariant();
+        if (!AllowedColumnTypes.Contains(columnType))
+        {
+            throw new ArgumentException($"Invalid column type: {parts[1]}");
+        }
+
+        return $"{QuoteIdentifier(parts[0])} {columnType}";
+    }
+
+    private static string BuildFilterClause(RecordReadOptions options, List<SQLiteParameter> parameters)
+    {
+        if (options.FilterColumn is null && options.FilterValue is null)
+        {
+            return string.Empty;
+        }
+
+        if (options.FilterColumn is null || options.FilterValue is null)
+        {
+            throw new ArgumentException("Both filterColumn and filterValue are required when filtering records.", nameof(options));
+        }
+
+        ValidateIdentifier(options.FilterColumn, nameof(options.FilterColumn));
+        parameters.Add(new SQLiteParameter("@filterValue", options.FilterValue));
+        return $" WHERE {QuoteIdentifier(options.FilterColumn)} = @filterValue";
+    }
+
+    private static int ReadRecordCount(SQLiteConnection connection, string tableName, string whereClause, IReadOnlyCollection<SQLiteParameter> parameters)
+    {
+        string query = $"SELECT COUNT(*) FROM {QuoteIdentifier(tableName)}{whereClause}";
+        using SQLiteCommand command = new SQLiteCommand(query, connection);
+        command.Parameters.AddRange(CloneParameters(parameters).ToArray());
+        return Convert.ToInt32(command.ExecuteScalar());
+    }
+
+    private static List<Dictionary<string, object?>> ReadRecordPage(
+        SQLiteConnection connection,
+        string tableName,
+        string whereClause,
+        IReadOnlyCollection<SQLiteParameter> filterParameters,
+        RecordReadOptions options)
+    {
+        int offset = (options.Page - 1) * options.PageSize;
+        string query = $"SELECT * FROM {QuoteIdentifier(tableName)}{whereClause} ORDER BY id LIMIT @limit OFFSET @offset";
+        using SQLiteCommand command = new SQLiteCommand(query, connection);
+
+        command.Parameters.AddRange(CloneParameters(filterParameters).ToArray());
+        command.Parameters.AddWithValue("@limit", options.PageSize);
+        command.Parameters.AddWithValue("@offset", offset);
+
+        using SQLiteDataReader reader = command.ExecuteReader();
+        List<Dictionary<string, object?>> records = new List<Dictionary<string, object?>>();
+
+        while (reader.Read())
+        {
+            records.Add(ReadCurrentRecord(reader));
+        }
+
+        return records;
+    }
+
+    private static List<SQLiteParameter> CloneParameters(IEnumerable<SQLiteParameter> parameters)
+    {
+        return parameters
+            .Select(parameter => new SQLiteParameter(parameter.ParameterName, parameter.Value))
+            .ToList();
+    }
+
+    private static Dictionary<string, object?> ReadCurrentRecord(SQLiteDataReader reader)
+    {
+        Dictionary<string, object?> record = new Dictionary<string, object?>();
+
+        for (int i = 0; i < reader.FieldCount; i++)
+        {
+            record[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+        }
+
+        return record;
+    }
+
+    private static void ValidateIdentifier(string value, string parameterName)
+    {
+        if (string.IsNullOrWhiteSpace(value) || !IdentifierPattern.IsMatch(value))
+        {
+            throw new ArgumentException($"Invalid identifier: {value}", parameterName);
+        }
+    }
+
+    private static string QuoteIdentifier(string value)
+    {
+        return $"\"{value.Replace("\"", "\"\"")}\"";
+    }
+}
