@@ -198,10 +198,18 @@ public class RestApiTests : IDisposable
         HttpResponseMessage unauthorized = await client.GetAsync("/tables");
         Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
 
+        HttpResponseMessage health = await client.GetAsync("/health");
+        Assert.Equal(HttpStatusCode.OK, health.StatusCode);
+
         using HttpRequestMessage authorizedRequest = new HttpRequestMessage(HttpMethod.Get, "/tables");
         authorizedRequest.Headers.Add("X-API-Key", "test-key");
         HttpResponseMessage authorized = await client.SendAsync(authorizedRequest);
         Assert.Equal(HttpStatusCode.OK, authorized.StatusCode);
+
+        using HttpRequestMessage bearerRequest = new HttpRequestMessage(HttpMethod.Get, "/tables");
+        bearerRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "test-key");
+        HttpResponseMessage bearerAuthorized = await client.SendAsync(bearerRequest);
+        Assert.Equal(HttpStatusCode.OK, bearerAuthorized.StatusCode);
 
         if (File.Exists(protectedDatabasePath))
         {

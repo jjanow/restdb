@@ -4,7 +4,8 @@
 operations behind a small database abstraction.
 
 The project now runs as an ASP.NET Core minimal API by default and keeps the
-original command-line CRUD workflow available when `-operation` is supplied.
+command-line CRUD workflow available through a separate CLI entry point when
+`-operation` is supplied.
 
 ## Project Status
 
@@ -18,7 +19,7 @@ What exists today:
   implementation.
 - REST endpoints for table creation and record insert/read/update/delete.
 - Swagger/OpenAPI documentation at `/swagger`.
-- Optional API-key enforcement through `RestDb:ApiKey`.
+- Optional API-key authentication and authorization through `RestDb:ApiKey`.
 - Paged, filterable, and sortable record reads.
 - Schema inspection plus add, rename, and drop column migration endpoints and
   CLI commands.
@@ -30,8 +31,6 @@ Known gaps in the current implementation:
 - Table schemas are intentionally small and accept only SQLite `TEXT`,
   `INTEGER`, `REAL`, `BLOB`, and `NUMERIC` column types.
 - Table and column names are dynamic, but limited to simple SQL identifiers.
-- API-key enforcement is intentionally small and should be replaced or extended
-  before production exposure.
 - Schema migrations are limited to SQLite column-level changes; complex table
   rewrites, indexes, and constraints are not managed yet.
 
@@ -49,7 +48,10 @@ Known gaps in the current implementation:
 │   ├── RestDb.Tests.csproj
 │   └── UnitTest1.cs
 └── restdb/
+    ├── ApiKeyAuthentication.cs
+    ├── CliApplication.cs
     ├── Program.cs
+    ├── RestApiApplication.cs
     ├── restdb.csproj
     ├── appsettings.json
     ├── Properties/
@@ -101,11 +103,14 @@ ConnectionStrings__RestDb="Data Source=/tmp/restdb.db;Version=3;" \
   dotnet run --project restdb/restdb.csproj
 ```
 
-API-key enforcement is disabled unless `RestDb:ApiKey` is configured. When set,
-all API routes except `/health` and `/swagger` require an `X-API-Key` header:
+API-key authentication is disabled unless `RestDb:ApiKey` is configured. When
+set, table and record routes require an authenticated API client. `/health` and
+`/swagger` stay public. Clients can send either an `X-API-Key` header or a
+standard bearer token:
 
 ```bash
 RestDb__ApiKey="local-dev-key" dotnet run --project restdb/restdb.csproj
+curl http://localhost:5055/tables -H "Authorization: Bearer local-dev-key"
 ```
 
 ## OpenAPI
@@ -355,7 +360,11 @@ dotnet run --project restdb/restdb.csproj -- \
 
 ## Development Notes
 
-- `Program.cs` contains the REST API routes plus the CLI fallback path.
+- `Program.cs` chooses the REST or CLI entry point.
+- `RestApiApplication.cs` configures the REST API host and routes.
+- `CliApplication.cs` handles command-line CRUD operations.
+- `ApiKeyAuthentication.cs` contains the ASP.NET Core authentication handler
+  and authorization policy for protected API routes.
 - `RestDb.Data/IDatabase.cs` defines the database operations.
 - `RestDb.Data/SQLiteDatabase.cs` implements those operations for SQLite.
 - `RestDb.Tests/UnitTest1.cs` contains HTTP integration tests.
@@ -371,10 +380,7 @@ dotnet test restdb.sln
 
 Good follow-up improvements would be:
 
-- Replace or extend the simple API-key check with a production-ready
-  authentication and authorization model.
 - Add schema management for indexes, constraints, and table rewrites that SQLite
   cannot express as simple column-level migrations.
 - Validate requested filter and sort columns against table schemas before
   executing record reads.
-- Split the REST and CLI entry points if they continue to grow independently.
