@@ -14,7 +14,7 @@ with a small data library shared by both entry points.
 
 What exists today:
 
-- A .NET 9 ASP.NET Core minimal API in `restdb/`.
+- A .NET 10 ASP.NET Core minimal API in `restdb/`.
 - A `RestDb.Data` class library containing the database abstraction and SQLite
   implementation.
 - REST endpoints for table creation and record insert/read/update/delete.
@@ -61,13 +61,13 @@ Known gaps in the current implementation:
 
 ## Requirements
 
-- .NET SDK 9.0 or newer.
+- .NET SDK 10.0 or newer.
 - SQLite support through the NuGet packages declared in
   `RestDb.Data/RestDb.Data.csproj`.
 
 The project currently restores:
 
-- `System.Data.SQLite` for the data library
+- `System.Data.SQLite` and `SQLitePCLRaw.lib.e_sqlite3` for the data library
 - `Swashbuckle.AspNetCore` for Swagger/OpenAPI
 - `Microsoft.AspNetCore.Mvc.Testing` for the integration test project
 
