@@ -164,6 +164,10 @@ public static class RestApiApplication
                     result.TotalCount,
                     (int)Math.Ceiling(result.TotalCount / (double)result.PageSize)));
             }
+            catch (TableNotFoundException ex)
+            {
+                return Results.NotFound(new ErrorResponse(ex.Message));
+            }
             catch (ArgumentException ex)
             {
                 return Results.BadRequest(new ErrorResponse("Invalid record query.", ex.Message));

@@ -33,6 +33,10 @@ public class SQLiteDatabase : IDatabase
         "ASC",
         "DESC"
     };
+    private static readonly HashSet<string> RowidAliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "rowid", "oid", "_rowid_"
+    };
 
     private readonly string connectionString;
 
@@ -289,24 +293,8 @@ public class SQLiteDatabase : IDatabase
         }
 
         using SQLiteConnection connection = CreateConnection();
-        using SQLiteCommand command = new SQLiteCommand($"PRAGMA table_info({QuoteIdentifier(tableName)})", connection);
-
         connection.Open();
-        using SQLiteDataReader reader = command.ExecuteReader();
-
-        List<ColumnSchema> columns = new List<ColumnSchema>();
-        while (reader.Read())
-        {
-            columns.Add(new ColumnSchema(
-                reader.GetInt32(0),
-                reader.GetString(1),
-                reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
-                reader.GetInt32(3) == 1,
-                reader.IsDBNull(4) ? null : reader.GetValue(4).ToString(),
-                reader.GetInt32(5) == 1));
-        }
-
-        return new TableSchema(tableName, columns);
+        return new TableSchema(tableName, ReadSchemaFromConnection(connection, tableName));
     }
 
     private SQLiteConnection CreateConnection()
@@ -359,7 +347,6 @@ public class SQLiteDatabase : IDatabase
             throw new ArgumentException("filterColumn is required when filtering records.", nameof(options));
         }
 
-        ValidateIdentifier(options.FilterColumn, nameof(options.FilterColumn));
         string filterOperator = options.FilterOperator ?? "eq";
 
         if (!AllowedFilterOperators.Contains(filterOperator))
@@ -442,7 +429,6 @@ public class SQLiteDatabase : IDatabase
         string sortColumn = options.SortColumn ?? "id";
         string sortDirection = options.SortDirection ?? "ASC";
 
-        ValidateIdentifier(sortColumn, nameof(options.SortColumn));
         if (!AllowedSortDirections.Contains(sortDirection))
         {
             throw new ArgumentException($"Unsupported sortDirection: {sortDirection}", nameof(options));
@@ -453,20 +439,38 @@ public class SQLiteDatabase : IDatabase
 
     private static void ValidateReadColumns(SQLiteConnection connection, string tableName, RecordReadOptions options)
     {
-        HashSet<string> columns = GetColumnNames(connection, tableName);
-        ValidateRequestedColumn(columns, options.FilterColumn, nameof(options.FilterColumn));
-        ValidateRequestedColumn(columns, options.SortColumn, nameof(options.SortColumn));
+        if (options.FilterColumn is null && options.SortColumn is null)
+        {
+            return;
+        }
+
+        List<ColumnSchema> schema = ReadSchemaFromConnection(connection, tableName);
+
+        if (schema.Count == 0)
+        {
+            throw new TableNotFoundException(tableName);
+        }
+
+        HashSet<string> columnNames = new HashSet<string>(schema.Select(c => c.Name), StringComparer.OrdinalIgnoreCase);
+        ValidateRequestedColumn(columnNames, options.FilterColumn, nameof(options.FilterColumn));
+        ValidateRequestedColumn(columnNames, options.SortColumn, nameof(options.SortColumn));
     }
 
-    private static HashSet<string> GetColumnNames(SQLiteConnection connection, string tableName)
+    private static List<ColumnSchema> ReadSchemaFromConnection(SQLiteConnection connection, string tableName)
     {
         using SQLiteCommand command = new SQLiteCommand($"PRAGMA table_info({QuoteIdentifier(tableName)})", connection);
         using SQLiteDataReader reader = command.ExecuteReader();
-        HashSet<string> columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        List<ColumnSchema> columns = new List<ColumnSchema>();
 
         while (reader.Read())
         {
-            columns.Add(reader.GetString(1));
+            columns.Add(new ColumnSchema(
+                reader.GetInt32(0),
+                reader.GetString(1),
+                reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                reader.GetInt32(3) == 1,
+                reader.IsDBNull(4) ? null : reader.GetValue(4).ToString(),
+                reader.GetInt32(5) == 1));
         }
 
         return columns;
@@ -480,7 +484,7 @@ public class SQLiteDatabase : IDatabase
         }
 
         ValidateIdentifier(columnName, parameterName);
-        if (!columns.Contains(columnName))
+        if (!RowidAliases.Contains(columnName) && !columns.Contains(columnName))
         {
             throw new ArgumentException($"Column '{columnName}' does not exist on the requested table.", parameterName);
         }

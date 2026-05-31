@@ -1,5 +1,11 @@
 namespace RestDb.Data;
 
+public class TableNotFoundException : Exception
+{
+    public TableNotFoundException(string tableName)
+        : base($"Table '{tableName}' was not found.") { }
+}
+
 public sealed record RecordReadOptions(
     int Page = 1,
     int PageSize = 50,

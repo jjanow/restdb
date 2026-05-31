@@ -13,81 +13,92 @@ public static class CliApplication
     {
         SQLiteDatabase database = new SQLiteDatabase(GetConnectionString(switches));
 
-        switch (switches.ContainsKey("-operation") ? switches["-operation"] : "")
+        try
         {
-            case "create":
-                string tableName = switches["-table"];
-                List<string> columns = switches.ContainsKey("-columns") ? switches["-columns"].Split(',').ToList() : new List<string>();
+            switch (switches.ContainsKey("-operation") ? switches["-operation"] : "")
+            {
+                case "create":
+                    string tableName = switches["-table"];
+                    List<string> columns = switches.ContainsKey("-columns") ? switches["-columns"].Split(',').ToList() : new List<string>();
 
-                bool created = database.CreateTable(tableName, columns);
-                Console.WriteLine(created ? $"Table '{tableName}' created." : $"Table '{tableName}' already exists.");
-                break;
+                    bool created = database.CreateTable(tableName, columns);
+                    Console.WriteLine(created ? $"Table '{tableName}' created." : $"Table '{tableName}' already exists.");
+                    break;
 
-            case "insert":
-                Dictionary<string, object?> recordToInsert = GetRecordFields(switches);
-                long newId = database.CreateRecord(switches["-table"], recordToInsert);
-                Console.WriteLine($"Record with ID {newId} created.");
-                break;
+                case "insert":
+                    Dictionary<string, object?> recordToInsert = GetRecordFields(switches);
+                    long newId = database.CreateRecord(switches["-table"], recordToInsert);
+                    Console.WriteLine($"Record with ID {newId} created.");
+                    break;
 
-            case "read":
-                ReadRecords(switches, database);
-                break;
+                case "read":
+                    ReadRecords(switches, database);
+                    break;
 
-            case "tables":
-                foreach (TableSummary table in database.ListTables())
-                {
-                    Console.WriteLine(table.Name);
-                }
-                break;
+                case "tables":
+                    foreach (TableSummary table in database.ListTables())
+                    {
+                        Console.WriteLine(table.Name);
+                    }
+                    break;
 
-            case "schema":
-                PrintSchema(switches, database);
-                break;
+                case "schema":
+                    PrintSchema(switches, database);
+                    break;
 
-            case "add-column":
-                if (!switches.ContainsKey("-table") || !switches.ContainsKey("-column"))
-                {
-                    Console.WriteLine("Table and column are required to add a column.");
-                    return;
-                }
+                case "add-column":
+                    if (!switches.ContainsKey("-table") || !switches.ContainsKey("-column"))
+                    {
+                        Console.WriteLine("Table and column are required to add a column.");
+                        return;
+                    }
 
-                bool migrated = database.AddColumn(switches["-table"], switches["-column"]);
-                Console.WriteLine(migrated ? $"Column added to table '{switches["-table"]}'." : $"Table '{switches["-table"]}' was not found.");
-                break;
+                    bool migrated = database.AddColumn(switches["-table"], switches["-column"]);
+                    Console.WriteLine(migrated ? $"Column added to table '{switches["-table"]}'." : $"Table '{switches["-table"]}' was not found.");
+                    break;
 
-            case "rename-column":
-                if (!switches.ContainsKey("-table") || !switches.ContainsKey("-column") || !switches.ContainsKey("-newname"))
-                {
-                    Console.WriteLine("Table, column, and newname are required to rename a column.");
-                    return;
-                }
+                case "rename-column":
+                    if (!switches.ContainsKey("-table") || !switches.ContainsKey("-column") || !switches.ContainsKey("-newname"))
+                    {
+                        Console.WriteLine("Table, column, and newname are required to rename a column.");
+                        return;
+                    }
 
-                bool renamed = database.RenameColumn(switches["-table"], switches["-column"], switches["-newname"]);
-                Console.WriteLine(renamed ? $"Column renamed in table '{switches["-table"]}'." : $"Table '{switches["-table"]}' was not found.");
-                break;
+                    bool renamed = database.RenameColumn(switches["-table"], switches["-column"], switches["-newname"]);
+                    Console.WriteLine(renamed ? $"Column renamed in table '{switches["-table"]}'." : $"Table '{switches["-table"]}' was not found.");
+                    break;
 
-            case "drop-column":
-                if (!switches.ContainsKey("-table") || !switches.ContainsKey("-column"))
-                {
-                    Console.WriteLine("Table and column are required to drop a column.");
-                    return;
-                }
+                case "drop-column":
+                    if (!switches.ContainsKey("-table") || !switches.ContainsKey("-column"))
+                    {
+                        Console.WriteLine("Table and column are required to drop a column.");
+                        return;
+                    }
 
-                bool dropped = database.DropColumn(switches["-table"], switches["-column"]);
-                Console.WriteLine(dropped ? $"Column dropped from table '{switches["-table"]}'." : $"Table '{switches["-table"]}' was not found.");
-                break;
+                    bool dropped = database.DropColumn(switches["-table"], switches["-column"]);
+                    Console.WriteLine(dropped ? $"Column dropped from table '{switches["-table"]}'." : $"Table '{switches["-table"]}' was not found.");
+                    break;
 
-            case "update":
-                UpdateRecord(switches, database);
-                break;
+                case "update":
+                    UpdateRecord(switches, database);
+                    break;
 
-            case "delete":
-                DeleteRecord(switches, database);
-                break;
+                case "delete":
+                    DeleteRecord(switches, database);
+                    break;
 
-            default:
-                Console.WriteLine("Specify -operation create, insert, read, update, delete, tables, schema, add-column, rename-column, or drop-column.");
-                break;
+                default:
+                    Console.WriteLine("Specify -operation create, insert, read, update, delete, tables, schema, add-column, rename-column, or drop-column.");
+                    break;
+            }
+        }
+        catch (ArgumentException ex)
+        {
+            Console.WriteLine($"Error: {ex.Message}");
+        }
+        catch (TableNotFoundException ex)
+        {
+            Console.WriteLine($"Error: {ex.Message}");
         }
     }
 
