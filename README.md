@@ -19,8 +19,9 @@ What exists today:
 - REST endpoints for table creation and record insert/read/update/delete.
 - Swagger/OpenAPI documentation at `/swagger`.
 - Optional API-key enforcement through `RestDb:ApiKey`.
-- Paged and filterable record reads.
-- Schema inspection and simple add-column migration endpoints and CLI commands.
+- Paged, filterable, and sortable record reads.
+- Schema inspection plus add, rename, and drop column migration endpoints and
+  CLI commands.
 - CLI handling for table creation and record insert/read/update/delete.
 - Automated API tests in `RestDb.Tests/`.
 
@@ -31,8 +32,8 @@ Known gaps in the current implementation:
 - Table and column names are dynamic, but limited to simple SQL identifiers.
 - API-key enforcement is intentionally small and should be replaced or extended
   before production exposure.
-- Schema migrations are currently limited to adding a column to an existing
-  table.
+- Schema migrations are limited to SQLite column-level changes; complex table
+  rewrites, indexes, and constraints are not managed yet.
 
 ## Repository Layout
 
@@ -171,12 +172,18 @@ Record collection reads return paging metadata:
 }
 ```
 
-Use `page`, `pageSize`, `filterColumn`, and `filterValue` query parameters for
-simple paging and equality filtering:
+Use `page`, `pageSize`, `filterColumn`, `filterValue`, `filterOperator`,
+`sortColumn`, and `sortDirection` query parameters for paging, filtering, and
+sorting:
 
 ```bash
-curl "http://localhost:5055/tables/users/records?page=1&pageSize=25&filterColumn=job&filterValue=Engineer"
+curl "http://localhost:5055/tables/users/records?page=1&pageSize=25&filterColumn=job&filterValue=Engineer&sortColumn=name&sortDirection=asc"
+curl "http://localhost:5055/tables/users/records?filterColumn=name&filterOperator=contains&filterValue=Ali"
 ```
+
+Supported filter operators are `eq`, `ne`, `contains`, `startsWith`,
+`endsWith`, `gt`, `gte`, `lt`, `lte`, `isNull`, and `isNotNull`. The default
+operator is `eq`, and the default sort is `id` ascending.
 
 ### Inspect Table Schema
 
@@ -190,6 +197,20 @@ curl http://localhost:5055/tables/users/schema
 curl -X POST http://localhost:5055/tables/users/columns \
   -H "Content-Type: application/json" \
   -d '{ "name": "email", "type": "TEXT" }'
+```
+
+### Rename a Column
+
+```bash
+curl -X POST http://localhost:5055/tables/users/columns/email/rename \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "contact_email" }'
+```
+
+### Drop a Column
+
+```bash
+curl -X DELETE http://localhost:5055/tables/users/columns/contact_email
 ```
 
 ### Update a Record
@@ -253,7 +274,20 @@ dotnet run --project restdb/restdb.csproj -- \
   -page 1 \
   -pagesize 25 \
   -filtercolumn job \
-  -filtervalue Engineer
+  -filtervalue Engineer \
+  -sortcolumn name \
+  -sortdirection asc
+```
+
+Use `-filteroperator` for non-equality filters:
+
+```bash
+dotnet run --project restdb/restdb.csproj -- \
+  -operation read \
+  -table users \
+  -filtercolumn name \
+  -filteroperator contains \
+  -filtervalue Ali
 ```
 
 Read one record by `id`:
@@ -300,6 +334,25 @@ dotnet run --project restdb/restdb.csproj -- \
   -column email:text
 ```
 
+### Rename a Column
+
+```bash
+dotnet run --project restdb/restdb.csproj -- \
+  -operation rename-column \
+  -table users \
+  -column email \
+  -newname contact_email
+```
+
+### Drop a Column
+
+```bash
+dotnet run --project restdb/restdb.csproj -- \
+  -operation drop-column \
+  -table users \
+  -column contact_email
+```
+
 ## Development Notes
 
 - `Program.cs` contains the REST API routes plus the CLI fallback path.
@@ -320,6 +373,8 @@ Good follow-up improvements would be:
 
 - Replace or extend the simple API-key check with a production-ready
   authentication and authorization model.
-- Expand schema migrations beyond simple add-column changes.
-- Add richer filtering operators and sorting for record reads.
+- Add schema management for indexes, constraints, and table rewrites that SQLite
+  cannot express as simple column-level migrations.
+- Validate requested filter and sort columns against table schemas before
+  executing record reads.
 - Split the REST and CLI entry points if they continue to grow independently.

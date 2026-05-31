@@ -92,7 +92,45 @@ namespace RestDb
                 }
             });
 
-            app.MapGet("/tables/{tableName}/records", (string tableName, int? page, int? pageSize, string? filterColumn, string? filterValue, IDatabase database) =>
+            app.MapPost("/tables/{tableName}/columns/{columnName}/rename", (string tableName, string columnName, RenameColumnRequest request, IDatabase database) =>
+            {
+                try
+                {
+                    bool migrated = database.RenameColumn(tableName, columnName, request.Name);
+                    return migrated
+                        ? Results.Ok(database.GetTableSchema(tableName))
+                        : Results.NotFound(TableNotFound(tableName));
+                }
+                catch (ArgumentException ex)
+                {
+                    return Results.BadRequest(new ErrorResponse("Invalid column rename.", ex.Message));
+                }
+                catch (SQLiteException ex)
+                {
+                    return Results.BadRequest(new ErrorResponse("Unable to rename column.", ex.Message));
+                }
+            });
+
+            app.MapDelete("/tables/{tableName}/columns/{columnName}", (string tableName, string columnName, IDatabase database) =>
+            {
+                try
+                {
+                    bool migrated = database.DropColumn(tableName, columnName);
+                    return migrated
+                        ? Results.Ok(database.GetTableSchema(tableName))
+                        : Results.NotFound(TableNotFound(tableName));
+                }
+                catch (ArgumentException ex)
+                {
+                    return Results.BadRequest(new ErrorResponse("Invalid column drop.", ex.Message));
+                }
+                catch (SQLiteException ex)
+                {
+                    return Results.BadRequest(new ErrorResponse("Unable to drop column.", ex.Message));
+                }
+            });
+
+            app.MapGet("/tables/{tableName}/records", (string tableName, int? page, int? pageSize, string? filterColumn, string? filterValue, string? filterOperator, string? sortColumn, string? sortDirection, IDatabase database) =>
             {
                 try
                 {
@@ -105,7 +143,10 @@ namespace RestDb
                         Page: page ?? 1,
                         PageSize: pageSize ?? 50,
                         FilterColumn: filterColumn,
-                        FilterValue: filterValue);
+                        FilterValue: filterValue,
+                        FilterOperator: filterOperator,
+                        SortColumn: sortColumn,
+                        SortDirection: sortDirection);
                     RecordReadResult result = database.ReadRecords(tableName, options);
 
                     return Results.Ok(new PagedRecordsResponse(
@@ -347,6 +388,28 @@ namespace RestDb
                     Console.WriteLine(migrated ? $"Column added to table '{switches["-table"]}'." : $"Table '{switches["-table"]}' was not found.");
                     break;
 
+                case "rename-column":
+                    if (!switches.ContainsKey("-table") || !switches.ContainsKey("-column") || !switches.ContainsKey("-newname"))
+                    {
+                        Console.WriteLine("Table, column, and newname are required to rename a column.");
+                        return;
+                    }
+
+                    bool renamed = database.RenameColumn(switches["-table"], switches["-column"], switches["-newname"]);
+                    Console.WriteLine(renamed ? $"Column renamed in table '{switches["-table"]}'." : $"Table '{switches["-table"]}' was not found.");
+                    break;
+
+                case "drop-column":
+                    if (!switches.ContainsKey("-table") || !switches.ContainsKey("-column"))
+                    {
+                        Console.WriteLine("Table and column are required to drop a column.");
+                        return;
+                    }
+
+                    bool dropped = database.DropColumn(switches["-table"], switches["-column"]);
+                    Console.WriteLine(dropped ? $"Column dropped from table '{switches["-table"]}'." : $"Table '{switches["-table"]}' was not found.");
+                    break;
+
                 case "update":
                     if (switches.ContainsKey("-id"))
                     {
@@ -386,7 +449,7 @@ namespace RestDb
                     break;
 
                 default:
-                    Console.WriteLine("Specify -operation create, insert, read, update, delete, tables, schema, or add-column.");
+                    Console.WriteLine("Specify -operation create, insert, read, update, delete, tables, schema, add-column, rename-column, or drop-column.");
                     break;
             }
         }
@@ -424,7 +487,11 @@ namespace RestDb
                 "-page",
                 "-pagesize",
                 "-filtercolumn",
-                "-filtervalue"
+                "-filtervalue",
+                "-filteroperator",
+                "-sortcolumn",
+                "-sortdirection",
+                "-newname"
             };
 
             return switches
@@ -471,8 +538,11 @@ namespace RestDb
 
             switches.TryGetValue("-filtercolumn", out string? filterColumn);
             switches.TryGetValue("-filtervalue", out string? filterValue);
+            switches.TryGetValue("-filteroperator", out string? filterOperator);
+            switches.TryGetValue("-sortcolumn", out string? sortColumn);
+            switches.TryGetValue("-sortdirection", out string? sortDirection);
 
-            return new RecordReadOptions(page, pageSize, filterColumn, filterValue);
+            return new RecordReadOptions(page, pageSize, filterColumn, filterValue, filterOperator, sortColumn, sortDirection);
         }
 
         private static Dictionary<string, object?> ConvertRecord(Dictionary<string, JsonElement> request)
@@ -503,6 +573,8 @@ namespace RestDb
     public record CreateTableRequest(string Name, List<ColumnDefinition> Columns);
 
     public record ColumnDefinition(string Name, string Type);
+
+    public record RenameColumnRequest(string Name);
 
     public record TableResponse(string Name, List<string> Columns);
 

@@ -14,6 +14,25 @@ public class SQLiteDatabase : IDatabase
         "BLOB",
         "NUMERIC"
     };
+    private static readonly HashSet<string> AllowedFilterOperators = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "eq",
+        "ne",
+        "contains",
+        "startsWith",
+        "endsWith",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "isNull",
+        "isNotNull"
+    };
+    private static readonly HashSet<string> AllowedSortDirections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "ASC",
+        "DESC"
+    };
 
     private readonly string connectionString;
 
@@ -187,6 +206,45 @@ public class SQLiteDatabase : IDatabase
         return true;
     }
 
+    public bool RenameColumn(string tableName, string columnName, string newColumnName)
+    {
+        ValidateIdentifier(tableName, nameof(tableName));
+        ValidateIdentifier(columnName, nameof(columnName));
+        ValidateIdentifier(newColumnName, nameof(newColumnName));
+
+        if (!TableExists(tableName))
+        {
+            return false;
+        }
+
+        string query = $"ALTER TABLE {QuoteIdentifier(tableName)} RENAME COLUMN {QuoteIdentifier(columnName)} TO {QuoteIdentifier(newColumnName)}";
+        using SQLiteConnection connection = CreateConnection();
+        using SQLiteCommand command = new SQLiteCommand(query, connection);
+
+        connection.Open();
+        command.ExecuteNonQuery();
+        return true;
+    }
+
+    public bool DropColumn(string tableName, string columnName)
+    {
+        ValidateIdentifier(tableName, nameof(tableName));
+        ValidateIdentifier(columnName, nameof(columnName));
+
+        if (!TableExists(tableName))
+        {
+            return false;
+        }
+
+        string query = $"ALTER TABLE {QuoteIdentifier(tableName)} DROP COLUMN {QuoteIdentifier(columnName)}";
+        using SQLiteConnection connection = CreateConnection();
+        using SQLiteCommand command = new SQLiteCommand(query, connection);
+
+        connection.Open();
+        command.ExecuteNonQuery();
+        return true;
+    }
+
     public bool TableExists(string tableName)
     {
         ValidateIdentifier(tableName, nameof(tableName));
@@ -263,7 +321,10 @@ public class SQLiteDatabase : IDatabase
             page,
             pageSize,
             string.IsNullOrWhiteSpace(options?.FilterColumn) ? null : options.FilterColumn,
-            string.IsNullOrWhiteSpace(options?.FilterValue) ? null : options.FilterValue);
+            string.IsNullOrWhiteSpace(options?.FilterValue) ? null : options.FilterValue,
+            string.IsNullOrWhiteSpace(options?.FilterOperator) ? null : NormalizeFilterOperator(options.FilterOperator),
+            string.IsNullOrWhiteSpace(options?.SortColumn) ? null : options.SortColumn,
+            string.IsNullOrWhiteSpace(options?.SortDirection) ? null : NormalizeSortDirection(options.SortDirection));
     }
 
     private static string ParseColumnDefinition(string column)
@@ -286,19 +347,39 @@ public class SQLiteDatabase : IDatabase
 
     private static string BuildFilterClause(RecordReadOptions options, List<SQLiteParameter> parameters)
     {
-        if (options.FilterColumn is null && options.FilterValue is null)
+        if (options.FilterColumn is null && options.FilterValue is null && options.FilterOperator is null)
         {
             return string.Empty;
         }
 
-        if (options.FilterColumn is null || options.FilterValue is null)
+        if (options.FilterColumn is null)
         {
-            throw new ArgumentException("Both filterColumn and filterValue are required when filtering records.", nameof(options));
+            throw new ArgumentException("filterColumn is required when filtering records.", nameof(options));
         }
 
         ValidateIdentifier(options.FilterColumn, nameof(options.FilterColumn));
-        parameters.Add(new SQLiteParameter("@filterValue", options.FilterValue));
-        return $" WHERE {QuoteIdentifier(options.FilterColumn)} = @filterValue";
+        string filterOperator = options.FilterOperator ?? "eq";
+
+        if (!AllowedFilterOperators.Contains(filterOperator))
+        {
+            throw new ArgumentException($"Unsupported filterOperator: {filterOperator}", nameof(options));
+        }
+
+        return filterOperator switch
+        {
+            "eq" => BuildValueFilter(options.FilterColumn, "=", options.FilterValue, parameters),
+            "ne" => BuildValueFilter(options.FilterColumn, "<>", options.FilterValue, parameters),
+            "contains" => BuildLikeFilter(options.FilterColumn, $"%{EscapeLikeValue(RequireFilterValue(options.FilterValue))}%", parameters),
+            "startsWith" => BuildLikeFilter(options.FilterColumn, $"{EscapeLikeValue(RequireFilterValue(options.FilterValue))}%", parameters),
+            "endsWith" => BuildLikeFilter(options.FilterColumn, $"%{EscapeLikeValue(RequireFilterValue(options.FilterValue))}", parameters),
+            "gt" => BuildValueFilter(options.FilterColumn, ">", options.FilterValue, parameters),
+            "gte" => BuildValueFilter(options.FilterColumn, ">=", options.FilterValue, parameters),
+            "lt" => BuildValueFilter(options.FilterColumn, "<", options.FilterValue, parameters),
+            "lte" => BuildValueFilter(options.FilterColumn, "<=", options.FilterValue, parameters),
+            "isNull" => $" WHERE {QuoteIdentifier(options.FilterColumn)} IS NULL",
+            "isNotNull" => $" WHERE {QuoteIdentifier(options.FilterColumn)} IS NOT NULL",
+            _ => throw new ArgumentException($"Unsupported filterOperator: {filterOperator}", nameof(options))
+        };
     }
 
     private static int ReadRecordCount(SQLiteConnection connection, string tableName, string whereClause, IReadOnlyCollection<SQLiteParameter> parameters)
@@ -317,7 +398,7 @@ public class SQLiteDatabase : IDatabase
         RecordReadOptions options)
     {
         int offset = (options.Page - 1) * options.PageSize;
-        string query = $"SELECT * FROM {QuoteIdentifier(tableName)}{whereClause} ORDER BY id LIMIT @limit OFFSET @offset";
+        string query = $"SELECT * FROM {QuoteIdentifier(tableName)}{whereClause}{BuildOrderByClause(options)} LIMIT @limit OFFSET @offset";
         using SQLiteCommand command = new SQLiteCommand(query, connection);
 
         command.Parameters.AddRange(CloneParameters(filterParameters).ToArray());
@@ -340,6 +421,74 @@ public class SQLiteDatabase : IDatabase
         return parameters
             .Select(parameter => new SQLiteParameter(parameter.ParameterName, parameter.Value))
             .ToList();
+    }
+
+    private static string BuildValueFilter(string columnName, string sqlOperator, string? filterValue, List<SQLiteParameter> parameters)
+    {
+        parameters.Add(new SQLiteParameter("@filterValue", RequireFilterValue(filterValue)));
+        return $" WHERE {QuoteIdentifier(columnName)} {sqlOperator} @filterValue";
+    }
+
+    private static string BuildLikeFilter(string columnName, string filterValue, List<SQLiteParameter> parameters)
+    {
+        parameters.Add(new SQLiteParameter("@filterValue", filterValue));
+        return $" WHERE {QuoteIdentifier(columnName)} LIKE @filterValue ESCAPE '\\'";
+    }
+
+    private static string BuildOrderByClause(RecordReadOptions options)
+    {
+        string sortColumn = options.SortColumn ?? "id";
+        string sortDirection = options.SortDirection ?? "ASC";
+
+        ValidateIdentifier(sortColumn, nameof(options.SortColumn));
+        if (!AllowedSortDirections.Contains(sortDirection))
+        {
+            throw new ArgumentException($"Unsupported sortDirection: {sortDirection}", nameof(options));
+        }
+
+        return $" ORDER BY {QuoteIdentifier(sortColumn)} {sortDirection}";
+    }
+
+    private static string NormalizeFilterOperator(string filterOperator)
+    {
+        return filterOperator switch
+        {
+            "=" or "equals" => "eq",
+            "!=" or "<>" or "notEquals" => "ne",
+            ">" => "gt",
+            ">=" => "gte",
+            "<" => "lt",
+            "<=" => "lte",
+            _ => filterOperator
+        };
+    }
+
+    private static string NormalizeSortDirection(string sortDirection)
+    {
+        return sortDirection.ToLowerInvariant() switch
+        {
+            "asc" or "ascending" => "ASC",
+            "desc" or "descending" => "DESC",
+            _ => sortDirection
+        };
+    }
+
+    private static string RequireFilterValue(string? filterValue)
+    {
+        if (filterValue is null)
+        {
+            throw new ArgumentException("filterValue is required for this filterOperator.");
+        }
+
+        return filterValue;
+    }
+
+    private static string EscapeLikeValue(string value)
+    {
+        return value
+            .Replace("\\", "\\\\")
+            .Replace("%", "\\%")
+            .Replace("_", "\\_");
     }
 
     private static Dictionary<string, object?> ReadCurrentRecord(SQLiteDataReader reader)

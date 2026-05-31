@@ -9,6 +9,8 @@ public interface IDatabase
     bool DeleteRecord(string tableName, int id);
     bool CreateTable(string tableName, List<string> columns);
     bool AddColumn(string tableName, string column);
+    bool RenameColumn(string tableName, string columnName, string newColumnName);
+    bool DropColumn(string tableName, string columnName);
     bool TableExists(string tableName);
     IReadOnlyList<TableSummary> ListTables();
     TableSchema? GetTableSchema(string tableName);

@@ -4,7 +4,10 @@ public sealed record RecordReadOptions(
     int Page = 1,
     int PageSize = 50,
     string? FilterColumn = null,
-    string? FilterValue = null);
+    string? FilterValue = null,
+    string? FilterOperator = null,
+    string? SortColumn = null,
+    string? SortDirection = null);
 
 public sealed record RecordReadResult(
     IReadOnlyList<Dictionary<string, object?>> Records,

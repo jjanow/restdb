@@ -103,20 +103,34 @@ public class RestApiTests : IDisposable
             columns = new[]
             {
                 new { name = "name", type = "TEXT" },
-                new { name = "role", type = "TEXT" }
+                new { name = "role", type = "TEXT" },
+                new { name = "age", type = "INTEGER" }
             }
         });
-        await client.PostAsJsonAsync("/tables/users/records", new { name = "Alice", role = "admin" });
-        await client.PostAsJsonAsync("/tables/users/records", new { name = "Bob", role = "reader" });
+        await client.PostAsJsonAsync("/tables/users/records", new { name = "Alice", role = "admin", age = 31 });
+        await client.PostAsJsonAsync("/tables/users/records", new { name = "Bob", role = "reader", age = 22 });
+        await client.PostAsJsonAsync("/tables/users/records", new { name = "Carol", role = "admin", age = 40 });
 
         JsonElement response = await client.GetFromJsonAsync<JsonElement>(
-            "/tables/users/records?page=1&pageSize=1&filterColumn=role&filterValue=admin");
+            "/tables/users/records?page=1&pageSize=1&filterColumn=role&filterValue=admin&sortColumn=name&sortDirection=desc");
 
         Assert.Equal(1, response.GetProperty("page").GetInt32());
         Assert.Equal(1, response.GetProperty("pageSize").GetInt32());
-        Assert.Equal(1, response.GetProperty("totalCount").GetInt32());
+        Assert.Equal(2, response.GetProperty("totalCount").GetInt32());
         JsonElement record = Assert.Single(response.GetProperty("records").EnumerateArray());
-        Assert.Equal("Alice", record.GetProperty("name").GetString());
+        Assert.Equal("Carol", record.GetProperty("name").GetString());
+
+        JsonElement containsResponse = await client.GetFromJsonAsync<JsonElement>(
+            "/tables/users/records?filterColumn=name&filterOperator=contains&filterValue=o&sortColumn=name");
+
+        Assert.Equal(2, containsResponse.GetProperty("totalCount").GetInt32());
+        JsonElement firstContainsRecord = containsResponse.GetProperty("records").EnumerateArray().First();
+        Assert.Equal("Bob", firstContainsRecord.GetProperty("name").GetString());
+
+        JsonElement comparisonResponse = await client.GetFromJsonAsync<JsonElement>(
+            "/tables/users/records?filterColumn=age&filterOperator=gte&filterValue=31&sortColumn=age");
+
+        Assert.Equal(2, comparisonResponse.GetProperty("totalCount").GetInt32());
     }
 
     [Fact]
@@ -144,6 +158,22 @@ public class RestApiTests : IDisposable
 
         JsonDocument migratedSchema = await JsonDocument.ParseAsync(await addColumn.Content.ReadAsStreamAsync());
         Assert.Contains(migratedSchema.RootElement.GetProperty("columns").EnumerateArray(), column => column.GetProperty("name").GetString() == "job");
+
+        HttpResponseMessage renameColumn = await client.PostAsJsonAsync("/tables/users/columns/job/rename", new
+        {
+            name = "title"
+        });
+        Assert.Equal(HttpStatusCode.OK, renameColumn.StatusCode);
+
+        JsonDocument renamedSchema = await JsonDocument.ParseAsync(await renameColumn.Content.ReadAsStreamAsync());
+        Assert.Contains(renamedSchema.RootElement.GetProperty("columns").EnumerateArray(), column => column.GetProperty("name").GetString() == "title");
+        Assert.DoesNotContain(renamedSchema.RootElement.GetProperty("columns").EnumerateArray(), column => column.GetProperty("name").GetString() == "job");
+
+        HttpResponseMessage dropColumn = await client.DeleteAsync("/tables/users/columns/title");
+        Assert.Equal(HttpStatusCode.OK, dropColumn.StatusCode);
+
+        JsonDocument droppedSchema = await JsonDocument.ParseAsync(await dropColumn.Content.ReadAsStreamAsync());
+        Assert.DoesNotContain(droppedSchema.RootElement.GetProperty("columns").EnumerateArray(), column => column.GetProperty("name").GetString() == "title");
     }
 
     [Fact]
