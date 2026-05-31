@@ -20,7 +20,8 @@ What exists today:
 - REST endpoints for table creation and record insert/read/update/delete.
 - Swagger/OpenAPI documentation at `/swagger`.
 - Optional API-key authentication and authorization through `RestDb:ApiKey`.
-- Paged, filterable, and sortable record reads.
+- Paged, filterable, and sortable record reads with schema validation for
+  requested filter and sort columns.
 - Schema inspection plus add, rename, and drop column migration endpoints and
   CLI commands.
 - CLI handling for table creation and record insert/read/update/delete.
@@ -188,7 +189,8 @@ curl "http://localhost:5055/tables/users/records?filterColumn=name&filterOperato
 
 Supported filter operators are `eq`, `ne`, `contains`, `startsWith`,
 `endsWith`, `gt`, `gte`, `lt`, `lte`, `isNull`, and `isNotNull`. The default
-operator is `eq`, and the default sort is `id` ascending.
+operator is `eq`, and the default sort is `id` ascending. `filterColumn` and
+`sortColumn` must reference columns that exist on the requested table.
 
 ### Inspect Table Schema
 
@@ -295,6 +297,9 @@ dotnet run --project restdb/restdb.csproj -- \
   -filtervalue Ali
 ```
 
+`-filtercolumn` and `-sortcolumn` must reference columns that exist on the
+requested table.
+
 Read one record by `id`:
 
 ```bash
@@ -375,12 +380,3 @@ Useful local checks:
 dotnet build restdb.sln
 dotnet test restdb.sln
 ```
-
-## Suggested Next Steps
-
-Good follow-up improvements would be:
-
-- Add schema management for indexes, constraints, and table rewrites that SQLite
-  cannot express as simple column-level migrations.
-- Validate requested filter and sort columns against table schemas before
-  executing record reads.

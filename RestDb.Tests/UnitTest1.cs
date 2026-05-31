@@ -134,6 +134,29 @@ public class RestApiTests : IDisposable
     }
 
     [Fact]
+    public async Task UnknownFilterAndSortColumnsReturnBadRequest()
+    {
+        HttpClient client = factory.CreateClient();
+
+        await client.PostAsJsonAsync("/tables", new
+        {
+            name = "users",
+            columns = new[]
+            {
+                new { name = "name", type = "TEXT" }
+            }
+        });
+
+        HttpResponseMessage invalidFilter = await client.GetAsync(
+            "/tables/users/records?filterColumn=missing&filterValue=value");
+        Assert.Equal(HttpStatusCode.BadRequest, invalidFilter.StatusCode);
+
+        HttpResponseMessage invalidSort = await client.GetAsync(
+            "/tables/users/records?sortColumn=missing");
+        Assert.Equal(HttpStatusCode.BadRequest, invalidSort.StatusCode);
+    }
+
+    [Fact]
     public async Task TableSchemaCanBeReadThroughRest()
     {
         HttpClient client = factory.CreateClient();

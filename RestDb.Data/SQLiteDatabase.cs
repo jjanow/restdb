@@ -88,11 +88,13 @@ public class SQLiteDatabase : IDatabase
         ValidateIdentifier(tableName, nameof(tableName));
 
         RecordReadOptions effectiveOptions = NormalizeReadOptions(options);
-        List<SQLiteParameter> parameters = new List<SQLiteParameter>();
-        string whereClause = BuildFilterClause(effectiveOptions, parameters);
 
         using SQLiteConnection connection = CreateConnection();
         connection.Open();
+
+        ValidateReadColumns(connection, tableName, effectiveOptions);
+        List<SQLiteParameter> parameters = new List<SQLiteParameter>();
+        string whereClause = BuildFilterClause(effectiveOptions, parameters);
 
         int totalCount = ReadRecordCount(connection, tableName, whereClause, parameters);
         List<Dictionary<string, object?>> records = ReadRecordPage(connection, tableName, whereClause, parameters, effectiveOptions);
@@ -447,6 +449,41 @@ public class SQLiteDatabase : IDatabase
         }
 
         return $" ORDER BY {QuoteIdentifier(sortColumn)} {sortDirection}";
+    }
+
+    private static void ValidateReadColumns(SQLiteConnection connection, string tableName, RecordReadOptions options)
+    {
+        HashSet<string> columns = GetColumnNames(connection, tableName);
+        ValidateRequestedColumn(columns, options.FilterColumn, nameof(options.FilterColumn));
+        ValidateRequestedColumn(columns, options.SortColumn, nameof(options.SortColumn));
+    }
+
+    private static HashSet<string> GetColumnNames(SQLiteConnection connection, string tableName)
+    {
+        using SQLiteCommand command = new SQLiteCommand($"PRAGMA table_info({QuoteIdentifier(tableName)})", connection);
+        using SQLiteDataReader reader = command.ExecuteReader();
+        HashSet<string> columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        while (reader.Read())
+        {
+            columns.Add(reader.GetString(1));
+        }
+
+        return columns;
+    }
+
+    private static void ValidateRequestedColumn(HashSet<string> columns, string? columnName, string parameterName)
+    {
+        if (columnName is null)
+        {
+            return;
+        }
+
+        ValidateIdentifier(columnName, parameterName);
+        if (!columns.Contains(columnName))
+        {
+            throw new ArgumentException($"Column '{columnName}' does not exist on the requested table.", parameterName);
+        }
     }
 
     private static string NormalizeFilterOperator(string filterOperator)
