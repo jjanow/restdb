@@ -282,6 +282,30 @@ public class RestApiTests : IDisposable
     }
 
     [Fact]
+    public async Task ReservedAndDuplicateColumnsReturnBadRequest()
+    {
+        HttpClient client = CreateAuthorizedClient();
+
+        HttpResponseMessage reservedId = await client.PostAsJsonAsync("/tables", new
+        {
+            name = "reserved_id",
+            columns = new[] { new { name = "id", type = "INTEGER" } }
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, reservedId.StatusCode);
+
+        HttpResponseMessage duplicateColumns = await client.PostAsJsonAsync("/tables", new
+        {
+            name = "duplicate_columns",
+            columns = new[]
+            {
+                new { name = "name", type = "TEXT" },
+                new { name = "Name", type = "TEXT" }
+            }
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, duplicateColumns.StatusCode);
+    }
+
+    [Fact]
     public async Task MissingColumnsReturnBadRequest()
     {
         HttpClient client = CreateAuthorizedClient();
@@ -292,6 +316,27 @@ public class RestApiTests : IDisposable
         });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task IdColumnCannotBeRenamedOrDroppedThroughRest()
+    {
+        HttpClient client = CreateAuthorizedClient();
+
+        await client.PostAsJsonAsync("/tables", new
+        {
+            name = "users",
+            columns = new[] { new { name = "name", type = "TEXT" } }
+        });
+
+        HttpResponseMessage renameId = await client.PostAsJsonAsync("/tables/users/columns/id/rename", new
+        {
+            name = "user_id"
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, renameId.StatusCode);
+
+        HttpResponseMessage dropId = await client.DeleteAsync("/tables/users/columns/id");
+        Assert.Equal(HttpStatusCode.BadRequest, dropId.StatusCode);
     }
 
     [Fact]
@@ -310,6 +355,28 @@ public class RestApiTests : IDisposable
 
         HttpResponseMessage delete = await client.DeleteAsync("/tables/missing/records/1");
         Assert.Equal(HttpStatusCode.NotFound, delete.StatusCode);
+    }
+
+    [Fact]
+    public async Task SqliteErrorsUseStablePublicMessages()
+    {
+        HttpClient client = CreateAuthorizedClient();
+
+        await client.PostAsJsonAsync("/tables", new
+        {
+            name = "users",
+            columns = new[] { new { name = "name", type = "TEXT" } }
+        });
+
+        HttpResponseMessage response = await client.PostAsJsonAsync("/tables/users/records", new
+        {
+            missing = "value"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        JsonElement body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Unable to create record.", body.GetProperty("error").GetString());
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("detail").ValueKind);
     }
 
     [Fact]
@@ -338,6 +405,38 @@ public class RestApiTests : IDisposable
         if (File.Exists(unconfiguredDatabasePath))
         {
             File.Delete(unconfiguredDatabasePath);
+        }
+    }
+
+    [Fact]
+    public async Task SwaggerAndMetricsAreHiddenOutsideDevelopmentByDefault()
+    {
+        string productionDatabasePath = Path.Combine(Path.GetTempPath(), $"restdb-{Guid.NewGuid():N}.db");
+        using WebApplicationFactory<Program> productionFactory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.UseEnvironment("Production");
+                builder.ConfigureAppConfiguration((_, configuration) =>
+                {
+                    configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["ConnectionStrings:RestDb"] = $"Data Source={productionDatabasePath};Version=3;",
+                        ["RestDb:ApiKey"] = "test-key"
+                    });
+                });
+            });
+
+        HttpClient client = productionFactory.CreateClient();
+
+        HttpResponseMessage swagger = await client.GetAsync("/swagger");
+        Assert.Equal(HttpStatusCode.NotFound, swagger.StatusCode);
+
+        HttpResponseMessage metrics = await client.GetAsync("/metrics");
+        Assert.Equal(HttpStatusCode.NotFound, metrics.StatusCode);
+
+        if (File.Exists(productionDatabasePath))
+        {
+            File.Delete(productionDatabasePath);
         }
     }
 

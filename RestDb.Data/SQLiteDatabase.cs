@@ -47,6 +47,7 @@ public class SQLiteDatabase : IDatabase
     {
         "rowid", "oid", "_rowid_"
     };
+    private const string IdColumnName = "id";
 
     private readonly string connectionString;
 
@@ -209,8 +210,18 @@ public class SQLiteDatabase : IDatabase
             }
 
             List<string> definitions = new List<string> { "id INTEGER PRIMARY KEY AUTOINCREMENT" };
+            HashSet<string> columnNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            definitions.AddRange(columns.Select(ParseColumnDefinition));
+            foreach (string column in columns)
+            {
+                ColumnDefinitionParts parsedColumn = ParseColumnDefinition(column);
+                if (!columnNames.Add(parsedColumn.Name))
+                {
+                    throw new ArgumentException($"Duplicate column name: {parsedColumn.Name}", nameof(columns));
+                }
+
+                definitions.Add(parsedColumn.Sql);
+            }
 
             string query = $"CREATE TABLE {QuoteIdentifier(tableName)} ({string.Join(", ", definitions)})";
             using SQLiteConnection connection = CreateConnection();
@@ -233,7 +244,7 @@ public class SQLiteDatabase : IDatabase
                 return false;
             }
 
-            string query = $"ALTER TABLE {QuoteIdentifier(tableName)} ADD COLUMN {ParseColumnDefinition(column)}";
+            string query = $"ALTER TABLE {QuoteIdentifier(tableName)} ADD COLUMN {ParseColumnDefinition(column).Sql}";
             using SQLiteConnection connection = CreateConnection();
             using SQLiteCommand command = new SQLiteCommand(query, connection);
 
@@ -250,6 +261,8 @@ public class SQLiteDatabase : IDatabase
             ValidateIdentifier(tableName, nameof(tableName));
             ValidateIdentifier(columnName, nameof(columnName));
             ValidateIdentifier(newColumnName, nameof(newColumnName));
+            ValidateMutableColumn(columnName, nameof(columnName));
+            ValidateNewColumnName(newColumnName, nameof(newColumnName));
 
             if (!TableExists(tableName))
             {
@@ -272,6 +285,7 @@ public class SQLiteDatabase : IDatabase
         {
             ValidateIdentifier(tableName, nameof(tableName));
             ValidateIdentifier(columnName, nameof(columnName));
+            ValidateMutableColumn(columnName, nameof(columnName));
 
             if (!TableExists(tableName))
             {
@@ -382,7 +396,7 @@ public class SQLiteDatabase : IDatabase
             string.IsNullOrWhiteSpace(options?.SortDirection) ? null : NormalizeSortDirection(options.SortDirection));
     }
 
-    private static string ParseColumnDefinition(string column)
+    private static ColumnDefinitionParts ParseColumnDefinition(string column)
     {
         string[] parts = column.Split(':', StringSplitOptions.TrimEntries);
         if (parts.Length != 2)
@@ -391,13 +405,14 @@ public class SQLiteDatabase : IDatabase
         }
 
         ValidateIdentifier(parts[0], nameof(column));
+        ValidateNewColumnName(parts[0], nameof(column));
         string columnType = parts[1].ToUpperInvariant();
         if (!AllowedColumnTypes.Contains(columnType))
         {
             throw new ArgumentException($"Invalid column type: {parts[1]}");
         }
 
-        return $"{QuoteIdentifier(parts[0])} {columnType}";
+        return new ColumnDefinitionParts(parts[0], $"{QuoteIdentifier(parts[0])} {columnType}");
     }
 
     private static string BuildFilterClause(RecordReadOptions options, List<SQLiteParameter> parameters)
@@ -628,8 +643,26 @@ public class SQLiteDatabase : IDatabase
         }
     }
 
+    private static void ValidateMutableColumn(string columnName, string parameterName)
+    {
+        if (columnName.Equals(IdColumnName, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("The id column cannot be renamed or dropped.", parameterName);
+        }
+    }
+
+    private static void ValidateNewColumnName(string columnName, string parameterName)
+    {
+        if (columnName.Equals(IdColumnName, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("The id column is reserved.", parameterName);
+        }
+    }
+
     private static string QuoteIdentifier(string value)
     {
         return $"\"{value.Replace("\"", "\"\"")}\"";
     }
+
+    private sealed record ColumnDefinitionParts(string Name, string Sql);
 }

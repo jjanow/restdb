@@ -1,23 +1,23 @@
 services:
   prometheus:
-    image: prom/prometheus:latest
+    image: ${PROMETHEUS_IMAGE:?Set PROMETHEUS_IMAGE to a pinned Prometheus image tag}
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   grafana:
-    image: grafana/grafana:latest
+    image: ${GRAFANA_IMAGE:?Set GRAFANA_IMAGE to a pinned Grafana image tag}
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD to a strong password}
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - prometheus
     restart: unless-stopped

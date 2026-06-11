@@ -29,11 +29,19 @@ public static class RestApiApplication
 
         WebApplication app = builder.Build();
 
-        app.UseSwagger();
-        app.UseSwaggerUI();
+        if (app.Environment.IsDevelopment())
+        {
+            app.UseSwagger();
+            app.UseSwaggerUI();
+        }
+
         app.UseAuthentication();
         app.UseAuthorization();
-        app.MapPrometheusScrapingEndpoint();
+
+        if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("RestDb:ExposeMetrics"))
+        {
+            app.MapPrometheusScrapingEndpoint();
+        }
 
         MapRoutes(app);
 
@@ -77,6 +85,11 @@ public static class RestApiApplication
             {
                 return Results.BadRequest(new ErrorResponse(ex.Message));
             }
+            catch (SQLiteException ex)
+            {
+                LogSqliteException(app.Logger, ex, "creating table");
+                return Results.BadRequest(new ErrorResponse("Unable to create table."));
+            }
         });
 
         tables.MapGet("/{tableName}/schema", (string tableName, IDatabase database) =>
@@ -109,7 +122,8 @@ public static class RestApiApplication
             }
             catch (SQLiteException ex)
             {
-                return Results.BadRequest(new ErrorResponse("Unable to add column.", ex.Message));
+                LogSqliteException(app.Logger, ex, "adding column");
+                return Results.BadRequest(new ErrorResponse("Unable to add column."));
             }
         });
 
@@ -128,7 +142,8 @@ public static class RestApiApplication
             }
             catch (SQLiteException ex)
             {
-                return Results.BadRequest(new ErrorResponse("Unable to rename column.", ex.Message));
+                LogSqliteException(app.Logger, ex, "renaming column");
+                return Results.BadRequest(new ErrorResponse("Unable to rename column."));
             }
         });
 
@@ -147,7 +162,8 @@ public static class RestApiApplication
             }
             catch (SQLiteException ex)
             {
-                return Results.BadRequest(new ErrorResponse("Unable to drop column.", ex.Message));
+                LogSqliteException(app.Logger, ex, "dropping column");
+                return Results.BadRequest(new ErrorResponse("Unable to drop column."));
             }
         });
 
@@ -187,7 +203,8 @@ public static class RestApiApplication
             }
             catch (SQLiteException ex)
             {
-                return Results.BadRequest(new ErrorResponse("Unable to read records.", ex.Message));
+                LogSqliteException(app.Logger, ex, "reading records");
+                return Results.BadRequest(new ErrorResponse("Unable to read records."));
             }
         });
 
@@ -211,7 +228,8 @@ public static class RestApiApplication
             }
             catch (SQLiteException ex)
             {
-                return Results.BadRequest(new ErrorResponse("Unable to read record.", ex.Message));
+                LogSqliteException(app.Logger, ex, "reading record");
+                return Results.BadRequest(new ErrorResponse("Unable to read record."));
             }
         });
 
@@ -236,7 +254,8 @@ public static class RestApiApplication
             }
             catch (SQLiteException ex)
             {
-                return Results.BadRequest(new ErrorResponse(ex.Message));
+                LogSqliteException(app.Logger, ex, "creating record");
+                return Results.BadRequest(new ErrorResponse("Unable to create record."));
             }
         });
 
@@ -263,7 +282,8 @@ public static class RestApiApplication
             }
             catch (SQLiteException ex)
             {
-                return Results.BadRequest(new ErrorResponse(ex.Message));
+                LogSqliteException(app.Logger, ex, "updating record");
+                return Results.BadRequest(new ErrorResponse("Unable to update record."));
             }
         });
 
@@ -290,7 +310,8 @@ public static class RestApiApplication
             }
             catch (SQLiteException ex)
             {
-                return Results.BadRequest(new ErrorResponse(ex.Message));
+                LogSqliteException(app.Logger, ex, "patching record");
+                return Results.BadRequest(new ErrorResponse("Unable to update record."));
             }
         });
 
@@ -314,9 +335,15 @@ public static class RestApiApplication
             }
             catch (SQLiteException ex)
             {
-                return Results.BadRequest(new ErrorResponse(ex.Message));
+                LogSqliteException(app.Logger, ex, "deleting record");
+                return Results.BadRequest(new ErrorResponse("Unable to delete record."));
             }
         });
+    }
+
+    private static void LogSqliteException(ILogger logger, SQLiteException exception, string operation)
+    {
+        logger.LogWarning(exception, "SQLite operation failed while {Operation}.", operation);
     }
 
     private static string GetConnectionString(IConfiguration configuration)

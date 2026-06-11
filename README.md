@@ -19,7 +19,7 @@ What exists today:
   implementation.
 - REST endpoints for table creation and record insert/read/update/delete.
 - Swagger/OpenAPI documentation at `/swagger`.
-- Optional API-key authentication and authorization through `RestDb:ApiKey`.
+- Fail-closed API-key authentication and authorization through `RestDb:ApiKey`.
 - Paged, filterable, and sortable record reads with schema validation for
   requested filter and sort columns.
 - Schema inspection plus add, rename, and drop column migration endpoints and
@@ -118,10 +118,10 @@ ConnectionStrings__RestDb="Data Source=/tmp/restdb.db;Version=3;" \
   dotnet run --project restdb/restdb.csproj
 ```
 
-API-key authentication is disabled unless `RestDb:ApiKey` is configured. When
-set, table and record routes require an authenticated API client. `/health` and
-`/swagger` stay public. Clients can send either an `X-API-Key` header or a
-standard bearer token:
+Table and record routes require API-key authentication. Configure
+`RestDb:ApiKey`; if it is omitted, protected routes fail closed with `401`.
+`/health` stays public. In development, `/swagger` also stays public. Clients
+can send either an `X-API-Key` header or a standard bearer token:
 
 ```bash
 RestDb__ApiKey="local-dev-key" dotnet run --project restdb/restdb.csproj
@@ -130,7 +130,7 @@ curl http://localhost:5055/tables -H "Authorization: Bearer local-dev-key"
 
 ## OpenAPI
 
-Run the API and open:
+In development, run the API and open:
 
 ```text
 http://localhost:5055/swagger
@@ -138,8 +138,9 @@ http://localhost:5055/swagger
 
 ## Observability
 
-The API exposes a Prometheus-compatible metrics endpoint at `/metrics`. It is
-public (no API key required) so Prometheus can scrape it without authentication.
+The API exposes a Prometheus-compatible metrics endpoint at `/metrics` in
+development. Outside development, set `RestDb:ExposeMetrics=true` only when the
+endpoint is protected by network controls so Prometheus can scrape it safely.
 
 Metrics collected:
 
@@ -151,14 +152,18 @@ Metrics collected:
 
 ### Prometheus + Grafana (Docker Compose)
 
-A ready-to-run stack is included. With the API running on port 5055:
+A Prometheus and Grafana stack is included. With the API running on port 5055,
+set explicit image tags and a strong Grafana admin password:
 
 ```bash
-docker compose up -d
+PROMETHEUS_IMAGE=prom/prometheus:<version> \
+GRAFANA_IMAGE=grafana/grafana:<version> \
+GRAFANA_ADMIN_PASSWORD='<strong-password>' \
+  docker compose up -d
 ```
 
 - Prometheus: <http://localhost:9090>
-- Grafana: <http://localhost:3000> (login: `admin` / `admin`)
+- Grafana: <http://localhost:3000> (login: `admin` / your configured password)
 
 The Prometheus datasource and a RestDb dashboard are provisioned automatically.
 The dashboard shows HTTP request rate and p99 latency, per-operation database
