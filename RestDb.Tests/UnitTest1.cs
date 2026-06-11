@@ -9,6 +9,8 @@ namespace RestDb.Tests;
 
 public class RestApiTests : IDisposable
 {
+    private const string ApiKey = "test-key";
+
     private readonly string databasePath;
     private readonly WebApplicationFactory<Program> factory;
 
@@ -24,7 +26,8 @@ public class RestApiTests : IDisposable
                 {
                     configuration.AddInMemoryCollection(new Dictionary<string, string?>
                     {
-                        ["ConnectionStrings:RestDb"] = connectionString
+                        ["ConnectionStrings:RestDb"] = connectionString,
+                        ["RestDb:ApiKey"] = ApiKey
                     });
                 });
             });
@@ -43,7 +46,7 @@ public class RestApiTests : IDisposable
     [Fact]
     public async Task RecordsCanBeCreatedReadUpdatedAndDeletedThroughRest()
     {
-        HttpClient client = factory.CreateClient();
+        HttpClient client = CreateAuthorizedClient();
 
         HttpResponseMessage createTable = await client.PostAsJsonAsync("/tables", new
         {
@@ -95,7 +98,7 @@ public class RestApiTests : IDisposable
     [Fact]
     public async Task RecordsCanBePagedAndFilteredThroughRest()
     {
-        HttpClient client = factory.CreateClient();
+        HttpClient client = CreateAuthorizedClient();
 
         await client.PostAsJsonAsync("/tables", new
         {
@@ -131,12 +134,17 @@ public class RestApiTests : IDisposable
             "/tables/users/records?filterColumn=age&filterOperator=gte&filterValue=31&sortColumn=age");
 
         Assert.Equal(2, comparisonResponse.GetProperty("totalCount").GetInt32());
+
+        JsonElement caseInsensitiveResponse = await client.GetFromJsonAsync<JsonElement>(
+            "/tables/users/records?filterColumn=name&filterOperator=startswith&filterValue=A");
+
+        Assert.Equal(1, caseInsensitiveResponse.GetProperty("totalCount").GetInt32());
     }
 
     [Fact]
     public async Task UnknownFilterAndSortColumnsReturnBadRequest()
     {
-        HttpClient client = factory.CreateClient();
+        HttpClient client = CreateAuthorizedClient();
 
         await client.PostAsJsonAsync("/tables", new
         {
@@ -159,7 +167,7 @@ public class RestApiTests : IDisposable
     [Fact]
     public async Task TableSchemaCanBeReadThroughRest()
     {
-        HttpClient client = factory.CreateClient();
+        HttpClient client = CreateAuthorizedClient();
 
         await client.PostAsJsonAsync("/tables", new
         {
@@ -243,7 +251,7 @@ public class RestApiTests : IDisposable
     [Fact]
     public async Task MetricsEndpointExposesRestDbHistogram()
     {
-        HttpClient client = factory.CreateClient();
+        HttpClient client = CreateAuthorizedClient();
 
         // Trigger a database operation so the histogram is recorded.
         await client.PostAsJsonAsync("/tables", new
@@ -262,7 +270,7 @@ public class RestApiTests : IDisposable
     [Fact]
     public async Task InvalidTableNamesReturnBadRequest()
     {
-        HttpClient client = factory.CreateClient();
+        HttpClient client = CreateAuthorizedClient();
 
         HttpResponseMessage response = await client.PostAsJsonAsync("/tables", new
         {
@@ -273,6 +281,66 @@ public class RestApiTests : IDisposable
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    [Fact]
+    public async Task MissingColumnsReturnBadRequest()
+    {
+        HttpClient client = CreateAuthorizedClient();
+
+        HttpResponseMessage response = await client.PostAsJsonAsync("/tables", new
+        {
+            name = "users"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task RecordMutationsReturnNotFoundForMissingTables()
+    {
+        HttpClient client = CreateAuthorizedClient();
+
+        HttpResponseMessage create = await client.PostAsJsonAsync("/tables/missing/records", new { name = "Alice" });
+        Assert.Equal(HttpStatusCode.NotFound, create.StatusCode);
+
+        HttpResponseMessage update = await client.PutAsJsonAsync("/tables/missing/records/1", new { name = "Alice" });
+        Assert.Equal(HttpStatusCode.NotFound, update.StatusCode);
+
+        HttpResponseMessage patch = await client.PatchAsJsonAsync("/tables/missing/records/1", new { name = "Alice" });
+        Assert.Equal(HttpStatusCode.NotFound, patch.StatusCode);
+
+        HttpResponseMessage delete = await client.DeleteAsync("/tables/missing/records/1");
+        Assert.Equal(HttpStatusCode.NotFound, delete.StatusCode);
+    }
+
+    [Fact]
+    public async Task ApiKeyAuthenticationFailsClosedWhenNotConfigured()
+    {
+        string unconfiguredDatabasePath = Path.Combine(Path.GetTempPath(), $"restdb-{Guid.NewGuid():N}.db");
+        using WebApplicationFactory<Program> unconfiguredFactory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureAppConfiguration((_, configuration) =>
+                {
+                    configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["ConnectionStrings:RestDb"] = $"Data Source={unconfiguredDatabasePath};Version=3;"
+                    });
+                });
+            });
+
+        HttpClient client = unconfiguredFactory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-API-Key", ApiKey);
+
+        HttpResponseMessage response = await client.GetAsync("/tables");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+
+        if (File.Exists(unconfiguredDatabasePath))
+        {
+            File.Delete(unconfiguredDatabasePath);
+        }
+    }
+
     public void Dispose()
     {
         factory.Dispose();
@@ -281,5 +349,12 @@ public class RestApiTests : IDisposable
         {
             File.Delete(databasePath);
         }
+    }
+
+    private HttpClient CreateAuthorizedClient()
+    {
+        HttpClient client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-API-Key", ApiKey);
+        return client;
     }
 }

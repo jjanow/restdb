@@ -557,14 +557,25 @@ public class SQLiteDatabase : IDatabase
 
     private static string NormalizeFilterOperator(string filterOperator)
     {
-        return filterOperator switch
+        return filterOperator.ToLowerInvariant() switch
         {
             "=" or "equals" => "eq",
-            "!=" or "<>" or "notEquals" => "ne",
+            "!=" or "<>" or "notequals" => "ne",
+            "eq" => "eq",
+            "ne" => "ne",
+            "contains" => "contains",
+            "startswith" => "startsWith",
+            "endswith" => "endsWith",
             ">" => "gt",
             ">=" => "gte",
             "<" => "lt",
             "<=" => "lte",
+            "gt" => "gt",
+            "gte" => "gte",
+            "lt" => "lt",
+            "lte" => "lte",
+            "isnull" => "isNull",
+            "isnotnull" => "isNotNull",
             _ => filterOperator
         };
     }

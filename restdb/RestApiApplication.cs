@@ -59,6 +59,11 @@ public static class RestApiApplication
                 return Results.BadRequest(new ErrorResponse("Table name is required."));
             }
 
+            if (request.Columns is null || request.Columns.Count == 0)
+            {
+                return Results.BadRequest(new ErrorResponse("At least one column is required."));
+            }
+
             try
             {
                 List<string> columns = request.Columns.Select(column => $"{column.Name}:{column.Type}").ToList();
@@ -214,6 +219,11 @@ public static class RestApiApplication
         {
             try
             {
+                if (!database.TableExists(tableName))
+                {
+                    return Results.NotFound(TableNotFound(tableName));
+                }
+
                 Dictionary<string, object?> record = ConvertRecord(request);
                 long id = database.CreateRecord(tableName, record);
                 record["id"] = id;
@@ -234,6 +244,11 @@ public static class RestApiApplication
         {
             try
             {
+                if (!database.TableExists(tableName))
+                {
+                    return Results.NotFound(TableNotFound(tableName));
+                }
+
                 Dictionary<string, object?> record = ConvertRecord(request);
                 record["id"] = id;
 
@@ -256,6 +271,11 @@ public static class RestApiApplication
         {
             try
             {
+                if (!database.TableExists(tableName))
+                {
+                    return Results.NotFound(TableNotFound(tableName));
+                }
+
                 Dictionary<string, object?> record = ConvertRecord(request);
                 record["id"] = id;
 
@@ -278,6 +298,11 @@ public static class RestApiApplication
         {
             try
             {
+                if (!database.TableExists(tableName))
+                {
+                    return Results.NotFound(TableNotFound(tableName));
+                }
+
                 bool deleted = database.DeleteRecord(tableName, id);
                 return deleted
                     ? Results.NoContent()
@@ -326,7 +351,7 @@ public static class RestApiApplication
     }
 }
 
-public record CreateTableRequest(string Name, List<ColumnDefinition> Columns);
+public record CreateTableRequest(string Name, List<ColumnDefinition>? Columns);
 
 public record ColumnDefinition(string Name, string Type);
 

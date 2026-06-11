@@ -42,7 +42,7 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAu
         string? configuredApiKey = configuration["RestDb:ApiKey"];
         if (string.IsNullOrWhiteSpace(configuredApiKey))
         {
-            return Task.FromResult(AuthenticateResult.Success(CreateTicket("unconfigured-api-client", "Unconfigured API client")));
+            return Task.FromResult(AuthenticateResult.Fail("API key authentication is not configured."));
         }
 
         string? providedApiKey = GetApiKeyFromRequest();
